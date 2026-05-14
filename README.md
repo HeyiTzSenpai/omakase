@@ -3,6 +3,8 @@
 > **お任せ** — *"I'll leave it to the chef."*
 > An LLM-powered sommelier for anime. Bring your own list, bring your own model, get a tasting menu.
 
+### **[Try the live demo →](https://omakase.jhinx.dev)**  ·  [jhinx.dev](https://jhinx.dev)
+
 [![CI](https://github.com/HeyiTzSenpai/omakase/actions/workflows/ci.yml/badge.svg)](https://github.com/HeyiTzSenpai/omakase/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](LICENSE)
