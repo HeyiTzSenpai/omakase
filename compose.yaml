@@ -1,0 +1,24 @@
+# docker compose stack for self-hosting Omakase.
+#
+# Drop this in /opt/stacks/omakase/ on CT 101 docker-edge, set the env vars
+# in .env (next to this file), and `docker compose up -d`.
+#
+# Then proxy https://omakase.jhinx.dev -> http://CT101:8765 in NPM.
+
+services:
+  omakase:
+    container_name: omakase
+    build: .
+    # image: ghcr.io/heyitzsenpai/omakase:latest   # uncomment once published
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      # Catch-all LLM API key. The container only needs one — pick the backend
+      # you want the live demo to use (Gemini Flash and Groq are good free-tier
+      # picks for an exposed demo).
+      OMAKASE_API_KEY: ${OMAKASE_API_KEY:?need an LLM API key}
+      # Only required if exposing MyAnimeList as a source.
+      MAL_CLIENT_ID: ${MAL_CLIENT_ID:-}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"

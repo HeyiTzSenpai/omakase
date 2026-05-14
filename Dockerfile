@@ -1,0 +1,33 @@
+# Multi-stage Dockerfile for self-hosting Omakase as a web service.
+# Build:  docker build -t omakase:latest .
+# Run:    docker run -d --name omakase -p 8765:8765 \
+#           -e OMAKASE_API_KEY=... \
+#           -e MAL_CLIENT_ID=...    # only if using MyAnimeList as a source
+#           omakase:latest
+
+FROM python:3.12-slim AS builder
+WORKDIR /build
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+RUN pip install --no-cache-dir --upgrade pip build && \
+    python -m build --wheel --outdir /wheels
+
+FROM python:3.12-slim AS runtime
+LABEL org.opencontainers.image.source="https://github.com/HeyiTzSenpai/omakase"
+LABEL org.opencontainers.image.description="An LLM-powered sommelier for anime"
+LABEL org.opencontainers.image.licenses="MIT"
+
+RUN useradd --create-home --uid 1000 omakase
+WORKDIR /home/omakase
+
+COPY --from=builder /wheels/*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/*.whl && rm -rf /tmp/*.whl
+
+USER omakase
+ENV OMAKASE_PORT=8765
+EXPOSE 8765
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8765/').read()" || exit 1
+
+CMD ["omakase", "web", "--host", "0.0.0.0"]
