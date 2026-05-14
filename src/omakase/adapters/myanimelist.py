@@ -9,6 +9,7 @@ To get a MAL Client ID:
   3. Copy the Client ID
   4. Set it:  $env:MAL_CLIENT_ID="your_client_id"
 """
+
 from __future__ import annotations
 
 import json
@@ -221,7 +222,9 @@ class MALAdapter(SourceAdapter):
             candidates = self._fetch_planning(username)
             # In planning mode the candidates ARE the planning list, so they
             # legitimately overlap with history. Only drop actively watched ones.
-            watched_ids = {m.id for m in history if m.status in {"CURRENT", "COMPLETED", "DROPPED", "PAUSED"}}
+            watched_ids = {
+                m.id for m in history if m.status in {"CURRENT", "COMPLETED", "DROPPED", "PAUSED"}
+            }
             candidates = [c for c in candidates if c.id not in watched_ids]
         else:
             candidates = self._fetch_candidates_jikan(exclude_ids, pool_size)

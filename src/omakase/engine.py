@@ -27,7 +27,7 @@ def _parse_recommendations(raw: str) -> list[Recommendation]:
     if cleaned.startswith("```"):
         end = cleaned.find("\n")
         if end != -1:
-            cleaned = cleaned[end + 1:]
+            cleaned = cleaned[end + 1 :]
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3].rstrip()
 
@@ -75,7 +75,9 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
     # 1. Fetch data from source
     print(f"  [1/5] Fetching data from {cfg.source} for '{cfg.username}'...")
     adapter = get_adapter(cfg.source)
-    data: SourceData = adapter.fetch(cfg.username, cfg.candidate_pool_size, use_planning=cfg.use_planning)
+    data: SourceData = adapter.fetch(
+        cfg.username, cfg.candidate_pool_size, use_planning=cfg.use_planning
+    )
 
     if not data.history:
         raise EmptyHistoryError(

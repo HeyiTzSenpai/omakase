@@ -13,7 +13,9 @@ console = Console()
 def show_recommendations(recs: list[Recommendation], source: str, username: str) -> None:
     """Print recommendations as a formatted table."""
     if not recs:
-        console.print("[yellow]No recommendations were returned. Check the LLM output above.[/yellow]")
+        console.print(
+            "[yellow]No recommendations were returned. Check the LLM output above.[/yellow]"
+        )
         return
 
     table = Table(
@@ -29,7 +31,9 @@ def show_recommendations(recs: list[Recommendation], source: str, username: str)
     table.add_column("Why", width=60)
 
     for i, rec in enumerate(recs, 1):
-        score_color = "green" if rec.predicted_score >= 8 else "yellow" if rec.predicted_score >= 6 else "red"
+        score_color = (
+            "green" if rec.predicted_score >= 8 else "yellow" if rec.predicted_score >= 6 else "red"
+        )
         table.add_row(
             str(i),
             rec.title,

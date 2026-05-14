@@ -12,7 +12,13 @@ def _format_history(items: list[MediaItem]) -> str:
     active = [m for m in items if m.status not in DROPPED_STATUSES]
     dropped = [m for m in items if m.status in DROPPED_STATUSES]
 
-    buckets = {"9-10 (Loved)": [], "7-8 (Liked)": [], "4-6 (Mid)": [], "1-3 (Bounced)": [], "Unscored": []}
+    buckets = {
+        "9-10 (Loved)": [],
+        "7-8 (Liked)": [],
+        "4-6 (Mid)": [],
+        "1-3 (Bounced)": [],
+        "Unscored": [],
+    }
     for m in active:
         s = m.score
         if s is None:

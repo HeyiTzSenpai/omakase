@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from omakase.engine import _parse_recommendations
 
-SAMPLE_JSON = '''
+SAMPLE_JSON = """
 {"recommendations": [
   {"title": "Vinland Saga", "predicted_score": 9, "reasoning": "Morally complex protagonist, dense world-building.", "best_match_from_history": "Berserk"},
   {"title": "Mushishi", "predicted_score": 8, "reasoning": "Quiet, atmospheric pacing.", "best_match_from_history": "Natsume's Book of Friends"}
 ]}
-'''
+"""
 
 
 def test_parses_clean_json():

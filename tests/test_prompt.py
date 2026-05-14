@@ -30,8 +30,8 @@ def test_prompt_groups_history_into_buckets():
     history = [
         _media("Loved Show", score=10, mid=1),
         _media("Liked Show", score=8, mid=2),
-        _media("Mid Show",   score=5, mid=3),
-        _media("Bad Show",   score=2, mid=4),
+        _media("Mid Show", score=5, mid=3),
+        _media("Bad Show", score=2, mid=4),
     ]
     prompt = build_prompt(taste_profile="x", history=history, candidates=[_media("Cand", mid=5)])
     assert "9-10 (Loved)" in prompt
@@ -43,7 +43,7 @@ def test_prompt_groups_history_into_buckets():
 def test_prompt_separates_dropped_shows():
     history = [
         _media("Liked", score=8, status="COMPLETED", mid=1),
-        _media("Quit",  score=3, status="DROPPED",   mid=2),
+        _media("Quit", score=3, status="DROPPED", mid=2),
     ]
     prompt = build_prompt(taste_profile="x", history=history, candidates=[_media("Cand", mid=3)])
     assert "DROPPED OR PAUSED" in prompt

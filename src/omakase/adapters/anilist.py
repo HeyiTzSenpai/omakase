@@ -217,7 +217,9 @@ class AniListAdapter(SourceAdapter):
             # In planning mode the candidates ARE drawn from the user's lists,
             # so they intentionally overlap with history. Only drop entries
             # the user has actively watched/dropped/paused.
-            watched_ids = {m.id for m in history if m.status in {"CURRENT", "COMPLETED", "DROPPED", "PAUSED"}}
+            watched_ids = {
+                m.id for m in history if m.status in {"CURRENT", "COMPLETED", "DROPPED", "PAUSED"}
+            }
             candidates = [c for c in candidates if c.id not in watched_ids]
         else:
             candidates = self._fetch_candidates(exclude_ids, pool_size)

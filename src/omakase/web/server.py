@@ -18,7 +18,8 @@ from pydantic import BaseModel
 
 from omakase import __version__
 from omakase.adapters.base import list_sources
-from omakase.engine import EmptyHistoryError, run as run_pipeline
+from omakase.engine import EmptyHistoryError
+from omakase.engine import run as run_pipeline
 from omakase.llm import list_backends
 from omakase.types import DEFAULT_URLS, MODEL_PRESETS, OmakaseConfig, resolve_model_preset
 
@@ -31,11 +32,12 @@ app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static"
 
 # ── Request / response models ─────────────────────────────
 
+
 class RecommendRequest(BaseModel):
     llm_type: str = "ollama"
     llm_url: str = "http://localhost:11434"
-    api_key: str | None = ""           # LLM API key
-    mal_client_id: str | None = ""     # MAL Client ID (source-specific)
+    api_key: str | None = ""  # LLM API key
+    mal_client_id: str | None = ""  # MAL Client ID (source-specific)
     model: str = "qwen2.5:7b"
     source: str = "anilist"
     username: str = ""
@@ -60,6 +62,7 @@ class RecommendResponse(BaseModel):
 
 
 # ── Routes ────────────────────────────────────────────────
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -95,7 +98,10 @@ async def recommend(req: RecommendRequest):
         os.environ["MAL_CLIENT_ID"] = req.mal_client_id
 
     llm_url, llm_type, model, supports_json = resolve_model_preset(
-        req.llm_url, req.llm_type, req.model, req.mode,
+        req.llm_url,
+        req.llm_type,
+        req.model,
+        req.mode,
     )
 
     cfg = OmakaseConfig(
@@ -228,11 +234,7 @@ def _get_default_profile() -> str:
 
 
 def _escape_html(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _friendly_llm_error(e: httpx.HTTPStatusError, llm_type: str, model: str) -> str:
@@ -255,7 +257,9 @@ def _friendly_llm_error(e: httpx.HTTPStatusError, llm_type: str, model: str) -> 
             "or try a different backend / your own paid key."
         )
     if code >= 500:
-        return f"{llm_type.title()} is having issues right now (HTTP {code}). Try again in a moment."
+        return (
+            f"{llm_type.title()} is having issues right now (HTTP {code}). Try again in a moment."
+        )
     return f"{llm_type.title()} returned HTTP {code}: {body}"
 
 

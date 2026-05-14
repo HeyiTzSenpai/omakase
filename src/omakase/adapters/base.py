@@ -9,9 +9,11 @@ _REGISTRY: dict[str, type["SourceAdapter"]] = {}
 
 def register(name: str):
     """Decorator to register a source adapter."""
+
     def wrapper(cls: type[SourceAdapter]) -> type[SourceAdapter]:
         _REGISTRY[name] = cls
         return cls
+
     return wrapper
 
 

@@ -19,6 +19,7 @@ def register(name: str):
     def wrapper(cls: type[BaseLLM]) -> type[BaseLLM]:
         _REGISTRY[name] = cls
         return cls
+
     return wrapper
 
 

@@ -36,7 +36,9 @@ def test_resolver_substitutes_default_url_for_non_ollama_backend():
 
 
 def test_resolver_keeps_custom_url():
-    url, _, _, _ = resolve_model_preset("https://my-proxy.example.com", "openai", "qwen2.5:7b", "fast")
+    url, _, _, _ = resolve_model_preset(
+        "https://my-proxy.example.com", "openai", "qwen2.5:7b", "fast"
+    )
     assert url == "https://my-proxy.example.com"
 
 
@@ -54,10 +56,16 @@ def test_unknown_backend_returns_inputs_unchanged():
     url, llm_type, model, supports_json = resolve_model_preset(
         "https://x.example", "made-up-backend", "some-model", "fast"
     )
-    assert (url, llm_type, model, supports_json) == ("https://x.example", "made-up-backend", "some-model", True)
+    assert (url, llm_type, model, supports_json) == (
+        "https://x.example",
+        "made-up-backend",
+        "some-model",
+        True,
+    )
 
 
 def test_all_backends_have_default_urls():
     from omakase.llm import list_backends
+
     for backend in list_backends():
         assert backend in DEFAULT_URLS, f"{backend} missing from DEFAULT_URLS"

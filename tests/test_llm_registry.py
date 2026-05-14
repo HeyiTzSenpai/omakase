@@ -13,9 +13,15 @@ from omakase.llm.openai import OpenAILLM
 
 def test_registry_lists_all_expected_backends():
     expected = {
-        "ollama", "lmstudio",
-        "openai", "anthropic", "gemini", "deepseek",
-        "openrouter", "groq", "together",
+        "ollama",
+        "lmstudio",
+        "openai",
+        "anthropic",
+        "gemini",
+        "deepseek",
+        "openrouter",
+        "groq",
+        "together",
     }
     assert set(list_backends()) == expected
 
@@ -23,15 +29,15 @@ def test_registry_lists_all_expected_backends():
 @pytest.mark.parametrize(
     "name,cls",
     [
-        ("ollama",     OllamaLLM),
-        ("openai",     OpenAILLM),
-        ("lmstudio",   OpenAILLM),
-        ("deepseek",   OpenAILLM),
+        ("ollama", OllamaLLM),
+        ("openai", OpenAILLM),
+        ("lmstudio", OpenAILLM),
+        ("deepseek", OpenAILLM),
         ("openrouter", OpenAILLM),
-        ("groq",       OpenAILLM),
-        ("together",   OpenAILLM),
-        ("anthropic",  AnthropicLLM),
-        ("gemini",     GeminiLLM),
+        ("groq", OpenAILLM),
+        ("together", OpenAILLM),
+        ("anthropic", AnthropicLLM),
+        ("gemini", GeminiLLM),
     ],
 )
 def test_get_llm_returns_correct_class(name, cls):

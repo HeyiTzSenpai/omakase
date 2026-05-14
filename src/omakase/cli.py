@@ -14,7 +14,17 @@ from omakase.engine import run
 from omakase.output.terminal import show_recommendations
 from omakase.types import OmakaseConfig, resolve_model_preset
 
-LLM_TYPES = ["ollama", "lmstudio", "openai", "anthropic", "gemini", "deepseek", "openrouter", "groq", "together"]
+LLM_TYPES = [
+    "ollama",
+    "lmstudio",
+    "openai",
+    "anthropic",
+    "gemini",
+    "deepseek",
+    "openrouter",
+    "groq",
+    "together",
+]
 
 
 @click.group()
@@ -32,16 +42,65 @@ def cli():
 @cli.command()
 @click.option("--source", "-s", default="anilist", help="Data source (anilist, myanimelist)")
 @click.option("--username", "-u", required=True, help="Your username on the source platform")
-@click.option("--profile", "-p", default="taste-profile.md", help="Path to your taste profile markdown file", show_default=True)
-@click.option("--llm-url", default="http://localhost:11434", help="LLM API base URL", show_default=True, envvar="OMAKASE_LLM_URL")
-@click.option("--model", "-m", default="qwen2.5:7b", help="Model name", show_default=True, envvar="OMAKASE_MODEL")
-@click.option("--llm-type", default="ollama", type=click.Choice(LLM_TYPES), help="LLM backend type", show_default=True)
-@click.option("--pool-size", default=100, help="Number of candidates to consider", show_default=True)
-@click.option("--temperature", default=0.4, help="LLM temperature (0.0-1.0)", show_default=True, type=float)
-@click.option("--json", "json_output", is_flag=True, help="Output raw JSON instead of formatted table")
-@click.option("--mode", default="fast", type=click.Choice(["fast", "pro"]), help="Model tier: fast (cheap) or pro (thinking)", show_default=True)
+@click.option(
+    "--profile",
+    "-p",
+    default="taste-profile.md",
+    help="Path to your taste profile markdown file",
+    show_default=True,
+)
+@click.option(
+    "--llm-url",
+    default="http://localhost:11434",
+    help="LLM API base URL",
+    show_default=True,
+    envvar="OMAKASE_LLM_URL",
+)
+@click.option(
+    "--model",
+    "-m",
+    default="qwen2.5:7b",
+    help="Model name",
+    show_default=True,
+    envvar="OMAKASE_MODEL",
+)
+@click.option(
+    "--llm-type",
+    default="ollama",
+    type=click.Choice(LLM_TYPES),
+    help="LLM backend type",
+    show_default=True,
+)
+@click.option(
+    "--pool-size", default=100, help="Number of candidates to consider", show_default=True
+)
+@click.option(
+    "--temperature", default=0.4, help="LLM temperature (0.0-1.0)", show_default=True, type=float
+)
+@click.option(
+    "--json", "json_output", is_flag=True, help="Output raw JSON instead of formatted table"
+)
+@click.option(
+    "--mode",
+    default="fast",
+    type=click.Choice(["fast", "pro"]),
+    help="Model tier: fast (cheap) or pro (thinking)",
+    show_default=True,
+)
 @click.option("--use-planning", is_flag=True, help="Use your Plan to Watch list as candidates")
-def recommend(source, username, profile, llm_url, model, llm_type, pool_size, temperature, json_output, mode, use_planning):
+def recommend(
+    source,
+    username,
+    profile,
+    llm_url,
+    model,
+    llm_type,
+    pool_size,
+    temperature,
+    json_output,
+    mode,
+    use_planning,
+):
     """Serve your anime tasting menu — 5–10 personalized picks."""
     llm_url, llm_type, model, supports_json = resolve_model_preset(llm_url, llm_type, model, mode)
 
@@ -63,14 +122,24 @@ def recommend(source, username, profile, llm_url, model, llm_type, pool_size, te
     recs = run(cfg)
 
     if json_output:
-        print(json.dumps(
-            {"source": source, "username": username, "recommendations": [
-                {"title": r.title, "predicted_score": r.predicted_score,
-                 "reasoning": r.reasoning, "best_match_from_history": r.best_match_from_history}
-                for r in recs
-            ]},
-            indent=2,
-        ))
+        print(
+            json.dumps(
+                {
+                    "source": source,
+                    "username": username,
+                    "recommendations": [
+                        {
+                            "title": r.title,
+                            "predicted_score": r.predicted_score,
+                            "reasoning": r.reasoning,
+                            "best_match_from_history": r.best_match_from_history,
+                        }
+                        for r in recs
+                    ],
+                },
+                indent=2,
+            )
+        )
     else:
         show_recommendations(recs, source, username)
 
@@ -87,6 +156,7 @@ def sources():
 def backends():
     """List available LLM backends."""
     from omakase.llm import list_backends
+
     click.echo("Available LLM backends:")
     for b in list_backends():
         click.echo(f"  - {b}")
@@ -119,13 +189,18 @@ def init(path):
         sys.exit(1)
     dest.write_text(template.strip() + "\n")
     click.echo(f"Created taste profile at {path}")
-    click.echo("Edit it to describe what you love, what you bounce off, and the characters that resonate with you.")
+    click.echo(
+        "Edit it to describe what you love, what you bounce off, and the characters that resonate with you."
+    )
 
 
 @cli.command()
 @click.option("--host", default="127.0.0.1", help="Bind address")
-@click.option("--port", "-p", default=8765, help="Port to listen on", show_default=True, envvar="OMAKASE_PORT")
+@click.option(
+    "--port", "-p", default=8765, help="Port to listen on", show_default=True, envvar="OMAKASE_PORT"
+)
 def web(host, port):
     """Launch the Omakase web setup UI in your browser."""
     from omakase.web.server import run_server
+
     run_server(host=host, port=port)

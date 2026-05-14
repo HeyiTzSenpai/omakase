@@ -18,7 +18,9 @@ class AnthropicLLM(BaseLLM):
     """Anthropic Claude via /v1/messages."""
 
     def __init__(self, url: str, model: str, api_key: str | None = None):
-        key = api_key or os.environ.get("OMAKASE_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
+        key = (
+            api_key or os.environ.get("OMAKASE_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
+        )
         super().__init__(url, model, key)
 
     def generate(
