@@ -167,9 +167,16 @@
         </div>
       </form>
 
-      <div class="loading" id="loading">
+      <div class="loading" id="loading" role="status" aria-live="polite">
         <div class="spinner"></div>
-        <span class="loading__text" id="loading-text">Fetching your history...</span>
+        <div class="loading__body">
+          <span class="loading__text" id="loading-text">Fetching your history…</span>
+          <span class="loading__meta">
+            <span id="loading-elapsed">0s</span>
+            <span class="loading__meta-sep">·</span>
+            <span class="loading__hint" id="loading-hint">Cloud LLMs usually take 10–30s · Pro mode can take a minute.</span>
+          </span>
+        </div>
       </div>
 
       <div class="results" id="results">
@@ -313,13 +320,39 @@
       }
     }
 
-    function setLoading(phase, active) {
+    // Phased loading: the server is one blocking call, so we simulate the
+    // pipeline's known stages by elapsed time. The LLM step is by far the
+    // longest, so we sit there longest. Honest enough to feel real.
+    let _loadingTimer = null;
+    let _loadingStartedAt = 0;
+    const LOADING_PHASES = [
+      { at: 0,    text: 'Fetching your anime history…' },
+      { at: 3,    text: 'Building the prompt…' },
+      { at: 5,    text: 'Asking the LLM to pair your tasting menu…' },
+      { at: 25,   text: 'The LLM is still thinking. Reasoning models take a while.' },
+      { at: 60,   text: 'Still working… consider switching to Fast mode next time.' },
+      { at: 120,  text: 'This is taking unusually long. Feel free to cancel and try again.' },
+    ];
+
+    function _renderLoading() {
+      const elapsed = Math.floor((Date.now() - _loadingStartedAt) / 1000);
+      let phase = LOADING_PHASES[0];
+      for (const p of LOADING_PHASES) if (elapsed >= p.at) phase = p;
+      document.getElementById('loading-text').textContent = phase.text;
+      document.getElementById('loading-elapsed').textContent = elapsed + 's';
+    }
+
+    function setLoading(active) {
       const el = document.getElementById('loading');
-      const text = document.getElementById('loading-text');
       if (active) {
+        _loadingStartedAt = Date.now();
         el.classList.add('loading--active');
-        text.textContent = phase;
+        _renderLoading();
+        clearInterval(_loadingTimer);
+        _loadingTimer = setInterval(_renderLoading, 1000);
       } else {
+        clearInterval(_loadingTimer);
+        _loadingTimer = null;
         el.classList.remove('loading--active');
       }
     }
@@ -364,7 +397,7 @@
         return;
       }
 
-      setLoading('Fetching your history...', true);
+      setLoading(true);
       document.getElementById('results').classList.remove('results--active');
       document.getElementById('run-btn').disabled = true;
 
@@ -380,7 +413,7 @@
       } catch (err) {
         showError(err.message);
       } finally {
-        setLoading('', false);
+        setLoading(false);
         document.getElementById('run-btn').disabled = false;
       }
     }

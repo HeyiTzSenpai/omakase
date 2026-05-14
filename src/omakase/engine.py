@@ -11,17 +11,23 @@ from omakase.prompt import build_prompt
 from omakase.types import OmakaseConfig, Recommendation, SourceData
 
 
+class EmptyHistoryError(Exception):
+    """The source adapter returned no history for this username.
+
+    Raised when the username is wrong / the list is empty / the list is private —
+    cases the visitor can fix by changing input, not retrying.
+    """
+
+
 def _parse_recommendations(raw: str) -> list[Recommendation]:
     """Parse LLM JSON output into Recommendation objects. Graceful on failure."""
     cleaned = raw.strip()
 
     # Strip markdown code fences if present
     if cleaned.startswith("```"):
-        # Remove opening fence (```json, ```, etc.)
         end = cleaned.find("\n")
         if end != -1:
             cleaned = cleaned[end + 1:]
-        # Remove closing fence
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3].rstrip()
 
@@ -70,6 +76,23 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
     print(f"  [1/5] Fetching data from {cfg.source} for '{cfg.username}'...")
     adapter = get_adapter(cfg.source)
     data: SourceData = adapter.fetch(cfg.username, cfg.candidate_pool_size, use_planning=cfg.use_planning)
+
+    if not data.history:
+        raise EmptyHistoryError(
+            f"No anime history found for '{cfg.username}' on {cfg.source}. "
+            "Double-check the username (it's case-sensitive on some sources) "
+            "and make sure the list is public."
+        )
+    if not data.candidates:
+        if cfg.use_planning:
+            raise EmptyHistoryError(
+                f"Your {cfg.source} Plan-to-Watch list is empty. "
+                "Add some titles to it, or uncheck 'Recommend from my Plan to Watch'."
+            )
+        raise EmptyHistoryError(
+            "Couldn't find candidate anime to recommend from. "
+            "This usually means the source is down — try again in a moment."
+        )
 
     loved = sum(1 for m in data.history if m.score and m.score >= 9)
     liked = sum(1 for m in data.history if m.score and 7 <= m.score < 9)

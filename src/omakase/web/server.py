@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from omakase import __version__
 from omakase.adapters.base import list_sources
-from omakase.engine import run as run_pipeline
+from omakase.engine import EmptyHistoryError, run as run_pipeline
 from omakase.llm import list_backends
 from omakase.types import DEFAULT_URLS, MODEL_PRESETS, OmakaseConfig, resolve_model_preset
 
@@ -114,16 +114,27 @@ async def recommend(req: RecommendRequest):
 
     try:
         recs = run_pipeline(cfg)
+    except EmptyHistoryError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except httpx.ConnectError:
         raise HTTPException(
             status_code=502,
-            detail=f"Could not connect to LLM at {req.llm_url}. Is it running?",
+            detail=(
+                f"Couldn't reach the LLM at {req.llm_url}. "
+                "If this is a local backend (Ollama / LM Studio), is it running? "
+                "Otherwise check the base URL."
+            ),
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "The LLM took too long to respond. Try the Fast mode, a smaller model, "
+                "or a different backend."
+            ),
         )
     except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"LLM returned error {e.response.status_code}: {e.response.text[:200]}",
-        )
+        raise HTTPException(status_code=502, detail=_friendly_llm_error(e, req.llm_type, req.model))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -222,6 +233,30 @@ def _escape_html(text: str) -> str:
             .replace("<", "&lt;")
             .replace(">", "&gt;")
     )
+
+
+def _friendly_llm_error(e: httpx.HTTPStatusError, llm_type: str, model: str) -> str:
+    """Translate a raw LLM HTTP error into a message the visitor can act on."""
+    code = e.response.status_code
+    body = e.response.text[:300]
+    if code in (401, 403):
+        return (
+            f"{llm_type.title()} rejected your API key. "
+            "Double-check the key you pasted, or that it has access to this model."
+        )
+    if code == 404:
+        return (
+            f"{llm_type.title()} doesn't recognize the model '{model}'. "
+            "Try a different model or switch the Fast/Pro toggle."
+        )
+    if code == 429:
+        return (
+            f"{llm_type.title()} rate-limited your key. Wait a minute, "
+            "or try a different backend / your own paid key."
+        )
+    if code >= 500:
+        return f"{llm_type.title()} is having issues right now (HTTP {code}). Try again in a moment."
+    return f"{llm_type.title()} returned HTTP {code}: {body}"
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8765):
