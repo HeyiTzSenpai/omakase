@@ -219,11 +219,14 @@ class MALAdapter(SourceAdapter):
         use_planning = kwargs.get("use_planning", False)
         if use_planning:
             candidates = self._fetch_planning(username)
+            # In planning mode the candidates ARE the planning list, so they
+            # legitimately overlap with history. Only drop actively watched ones.
+            watched_ids = {m.id for m in history if m.status in {"CURRENT", "COMPLETED", "DROPPED", "PAUSED"}}
+            candidates = [c for c in candidates if c.id not in watched_ids]
         else:
             candidates = self._fetch_candidates_jikan(exclude_ids, pool_size)
-
-        seen = set(exclude_ids)
-        candidates = [c for c in candidates if c.id not in seen]
+            seen = set(exclude_ids)
+            candidates = [c for c in candidates if c.id not in seen]
         return SourceData(
             username=username,
             history=history,

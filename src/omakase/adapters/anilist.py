@@ -214,12 +214,16 @@ class AniListAdapter(SourceAdapter):
         use_planning = kwargs.get("use_planning", False)
         if use_planning:
             candidates = self._fetch_planning(username)
+            # In planning mode the candidates ARE drawn from the user's lists,
+            # so they intentionally overlap with history. Only drop entries
+            # the user has actively watched/dropped/paused.
+            watched_ids = {m.id for m in history if m.status in {"CURRENT", "COMPLETED", "DROPPED", "PAUSED"}}
+            candidates = [c for c in candidates if c.id not in watched_ids]
         else:
             candidates = self._fetch_candidates(exclude_ids, pool_size)
-
-        # Safety filter: ensure no history IDs leak into candidates
-        seen = set(exclude_ids)
-        candidates = [c for c in candidates if c.id not in seen]
+            # Safety filter for the popular-pool path: no history IDs may leak.
+            seen = set(exclude_ids)
+            candidates = [c for c in candidates if c.id not in seen]
         return SourceData(
             username=username,
             history=history,
