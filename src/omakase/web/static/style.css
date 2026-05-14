@@ -1,6 +1,37 @@
-/* Taste — setup UI
+/* Omakase — setup UI
    Design system: midnight Tokyo, matching jhinx.dev
    Tokens mirrored from jhinx.dev design-system.md v1 */
+
+/* ── BYOK banner ─────────────────────────────────── */
+.byok-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  margin-bottom: 1.5rem;
+  background: color-mix(in srgb, #5B21B6 18%, transparent);
+  border: 1px solid color-mix(in srgb, #A855F7 35%, transparent);
+  border-radius: 8px;
+  color: #C4B5E8;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.byok-banner__icon {
+  font-size: 1.125rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+.byok-banner strong { color: #F5F3FF; font-weight: 600; }
+.byok-banner code {
+  background: #14092A;
+  color: #C084FC;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.85em;
+}
+
 
 :root {
   --bg-base: #0A0612;
