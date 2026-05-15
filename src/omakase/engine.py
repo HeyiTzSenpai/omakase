@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import sys
+from urllib.parse import quote_plus
 
 from omakase.adapters.base import get_adapter
 from omakase.llm import get_llm
 from omakase.prompt import build_prompt
-from omakase.types import OmakaseConfig, Recommendation, SourceData
+from omakase.types import MediaItem, OmakaseConfig, Recommendation, SourceData
 
 
 class EmptyHistoryError(Exception):
@@ -57,6 +58,51 @@ def _parse_recommendations(raw: str) -> list[Recommendation]:
         print(f"[!] Failed to parse LLM output: {e}", file=sys.stderr)
         print(f"Raw output: {raw[:500]}", file=sys.stderr)
         return []
+
+
+def _resolve_rec_urls(
+    recs: list[Recommendation],
+    candidates: list[MediaItem],
+    source_name: str,
+) -> None:
+    """Set each Recommendation's `url` + `source` so the UI can link out.
+
+    Strategy: match the LLM-returned title against the candidate pool
+    (case-insensitive, against both English and romaji titles). On hit,
+    build a permalink with the candidate's source-native ID. On miss,
+    fall back to a source-specific search URL — still useful, never broken.
+    """
+    if not recs:
+        return
+
+    # Build a lookup keyed on normalized titles. Includes both english
+    # and romaji titles to maximize hit rate — LLMs return either form.
+    lookup: dict[str, MediaItem] = {}
+    for c in candidates:
+        for t in (c.title_english, c.title_romaji):
+            if t:
+                lookup.setdefault(t.strip().lower(), c)
+
+    def permalink(item: MediaItem) -> str | None:
+        if source_name == "anilist":
+            return f"https://anilist.co/anime/{item.id}/"
+        if source_name == "myanimelist":
+            return f"https://myanimelist.net/anime/{item.id}/"
+        return None
+
+    def search_url(title: str) -> str:
+        q = quote_plus(title.strip())
+        if source_name == "myanimelist":
+            return f"https://myanimelist.net/anime.php?q={q}&cat=anime"
+        # Default to AniList search — covers the "anilist" name and any
+        # future sources that don't ship a dedicated search URL.
+        return f"https://anilist.co/search/anime?search={q}"
+
+    for r in recs:
+        r.source = source_name
+        match = lookup.get(r.title.strip().lower())
+        link = permalink(match) if match else None
+        r.url = link or search_url(r.title)
 
 
 def _load_taste_profile(path: str) -> str:
@@ -126,5 +172,6 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
     # 5. Parse
     print("  [5/5] Parsing response...")
     recs = _parse_recommendations(raw)
+    _resolve_rec_urls(recs, data.candidates, data.source_name)
     print(f"        Got {len(recs)} recommendations\n")
     return recs

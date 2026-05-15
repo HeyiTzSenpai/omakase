@@ -53,6 +53,8 @@ class RecommendationOut(BaseModel):
     predicted_score: float
     reasoning: str
     best_match_from_history: str
+    url: str | None = None
+    source: str | None = None
 
 
 class RecommendResponse(BaseModel):
@@ -153,6 +155,8 @@ async def recommend(req: RecommendRequest):
                 predicted_score=r.predicted_score,
                 reasoning=r.reasoning,
                 best_match_from_history=r.best_match_from_history,
+                url=r.url,
+                source=r.source,
             )
             for r in recs
         ],

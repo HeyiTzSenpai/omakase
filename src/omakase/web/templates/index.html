@@ -148,7 +148,7 @@
             <span class="step__number">3</span>
             <div>
               <div class="step__title">Taste profile</div>
-              <div class="step__desc">Describe what you love and what you bounce off.</div>
+              <div class="step__desc">Describe what you enjoy, what you avoid, and the patterns that usually make an anime click for you.</div>
             </div>
           </div>
           <div class="field">
@@ -438,15 +438,39 @@
         if (score >= 8) scoreClass = 'rec-card__score--high';
         else if (score >= 6) scoreClass = 'rec-card__score--mid';
 
-        const card = document.createElement('div');
-        card.className = 'rec-card';
+        // Render as an <a> if we know where this anime lives on the
+        // selected source. Falls back to a plain <div> so layout stays
+        // intact when no URL is available.
+        const sourceLabel = rec.source === 'myanimelist'
+          ? 'MyAnimeList'
+          : rec.source === 'anilist' ? 'AniList' : '';
+        const cardTag = rec.url ? 'a' : 'div';
+        const card = document.createElement(cardTag);
+        card.className = rec.url ? 'rec-card rec-card--link' : 'rec-card';
+        if (rec.url) {
+          card.href = rec.url;
+          card.target = '_blank';
+          card.rel = 'noopener noreferrer';
+          card.setAttribute(
+            'aria-label',
+            'Open ' + rec.title + (sourceLabel ? ' on ' + sourceLabel : '') + ' in a new tab',
+          );
+        }
+
+        const externalHint = rec.url && sourceLabel
+          ? '<span class="rec-card__external" aria-hidden="true">Open on ' + sourceLabel + ' ↗</span>'
+          : '';
+
         card.innerHTML =
           '<div class="rec-card__top">' +
             '<div class="rec-card__title">' + escapeHtml(rec.title) + '</div>' +
             '<span class="rec-card__score ' + scoreClass + '">' + score + '/10</span>' +
           '</div>' +
           '<div class="rec-card__reasoning">' + escapeHtml(rec.reasoning) + '</div>' +
-          '<div class="rec-card__match">Pairs with: <strong>' + escapeHtml(rec.best_match_from_history) + '</strong></div>';
+          '<div class="rec-card__match">' +
+            '<span>Pairs with: <strong>' + escapeHtml(rec.best_match_from_history) + '</strong></span>' +
+            externalHint +
+          '</div>';
         list.appendChild(card);
       });
 

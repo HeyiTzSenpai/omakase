@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from omakase.engine import _parse_recommendations
+from omakase.engine import _parse_recommendations, _resolve_rec_urls
+from omakase.types import MediaItem, Recommendation
 
 SAMPLE_JSON = """
 {"recommendations": [
@@ -44,3 +45,58 @@ def test_handles_missing_fields_gracefully():
     assert recs[0].title == "Made in Abyss"
     assert recs[0].predicted_score == 0.0
     assert recs[0].reasoning == ""
+
+
+def _rec(title: str) -> Recommendation:
+    return Recommendation(
+        title=title,
+        predicted_score=8.0,
+        reasoning="",
+        best_match_from_history="",
+    )
+
+
+def test_resolve_urls_anilist_permalink_on_title_match():
+    candidates = [
+        MediaItem(id=21, title_romaji="One Piece", title_english="One Piece"),
+        MediaItem(id=99, title_romaji="Vinland Saga", title_english="Vinland Saga"),
+    ]
+    recs = [_rec("Vinland Saga")]
+    _resolve_rec_urls(recs, candidates, "anilist")
+    assert recs[0].source == "anilist"
+    assert recs[0].url == "https://anilist.co/anime/99/"
+
+
+def test_resolve_urls_mal_permalink_on_title_match():
+    candidates = [
+        MediaItem(
+            id=5114,
+            title_romaji="Hagane no Renkinjutsushi",
+            title_english="Fullmetal Alchemist: Brotherhood",
+        ),
+    ]
+    recs = [_rec("Fullmetal Alchemist: Brotherhood")]
+    _resolve_rec_urls(recs, candidates, "myanimelist")
+    assert recs[0].source == "myanimelist"
+    assert recs[0].url == "https://myanimelist.net/anime/5114/"
+
+
+def test_resolve_urls_falls_back_to_search_when_no_match():
+    candidates = [MediaItem(id=1, title_romaji="Cowboy Bebop", title_english="Cowboy Bebop")]
+    recs = [_rec("Some Obscure Title")]
+    _resolve_rec_urls(recs, candidates, "anilist")
+    assert recs[0].url is not None
+    assert "anilist.co/search/anime" in recs[0].url
+    assert "Some+Obscure+Title" in recs[0].url
+
+
+def test_resolve_urls_match_is_case_insensitive_and_uses_romaji_too():
+    candidates = [
+        MediaItem(id=42, title_romaji="Shingeki no Kyojin", title_english="Attack on Titan"),
+    ]
+    recs_en = [_rec("attack on titan")]
+    recs_ro = [_rec("Shingeki No Kyojin")]
+    _resolve_rec_urls(recs_en, candidates, "anilist")
+    _resolve_rec_urls(recs_ro, candidates, "anilist")
+    assert recs_en[0].url == "https://anilist.co/anime/42/"
+    assert recs_ro[0].url == "https://anilist.co/anime/42/"

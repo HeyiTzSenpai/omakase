@@ -31,6 +31,8 @@ class Recommendation:
     predicted_score: float
     reasoning: str
     best_match_from_history: str
+    url: str | None = None
+    source: str | None = None
 
 
 @dataclass
