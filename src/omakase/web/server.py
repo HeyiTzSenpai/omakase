@@ -25,6 +25,25 @@ from omakase.types import DEFAULT_URLS, MODEL_PRESETS, OmakaseConfig, resolve_mo
 
 _HERE = Path(__file__).resolve().parent
 
+
+def _asset_version() -> str:
+    """Cache-bust query string for the static stylesheet.
+
+    Built once at import time from the stylesheet's mtime — changes
+    every time someone edits style.css and rebuilds the container,
+    which is exactly when we need users to skip their browser cache.
+    Falls back to the package version if stat() fails (e.g. inside an
+    odd packaging scenario).
+    """
+    css = _HERE / "static" / "style.css"
+    try:
+        return str(int(css.stat().st_mtime))
+    except OSError:
+        return __version__
+
+
+_ASSET_VERSION = _asset_version()
+
 app = FastAPI(title="Omakase", version=__version__)
 
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
@@ -75,6 +94,13 @@ async def index():
         "{% if default_profile %}{{ default_profile }}{% endif %}",
         _escape_html(default_profile),
     )
+    # Cache-bust the CSS bundle on every deploy so users who had the
+    # old template HTML never end up with the old stylesheet — the
+    # layout of `.rec-card` switched from <div> to <a>, and stale CSS
+    # rendered the new anchor cards as inline links with browser
+    # default underlines. Version is derived from style.css mtime at
+    # import time (see `_asset_version`).
+    html = html.replace("{{ asset_version }}", _ASSET_VERSION)
     return html
 
 
