@@ -2,47 +2,6 @@
    Design system: midnight Tokyo, matching jhinx.dev
    Tokens mirrored from jhinx.dev design-system.md v1 */
 
-/* ── Back-to-jhinx.dev nav (top bar) ───────────────
-   Always visible, fixed to the viewport, so a visitor can
-   bounce back to the main site from anywhere on the page
-   (including after a long-running recommendation finishes).
-   The hero's var(--space-24) top padding leaves plenty of
-   room so the bar never overlaps the hero content. */
-.back-nav {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 1.25rem;
-  background: color-mix(in srgb, #0A0612 85%, transparent);
-  backdrop-filter: saturate(140%) blur(6px);
-  -webkit-backdrop-filter: saturate(140%) blur(6px);
-  border-bottom: 1px solid color-mix(in srgb, #2A1A4D 60%, transparent);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 0.8125rem;
-  letter-spacing: 0.02em;
-}
-.back-nav__link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: #C4B5E8;
-  text-decoration: none;
-  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-.back-nav__link:hover { color: #C084FC; }
-.back-nav__arrow {
-  display: inline-block;
-  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.back-nav__link:hover .back-nav__arrow { transform: translateX(-3px); }
-.back-nav__sep { color: #8B7BB8; opacity: 0.6; }
-.back-nav__crumb { color: #8B7BB8; }
-
 /* ── BYOK banner ─────────────────────────────────── */
 .byok-banner {
   display: flex;
