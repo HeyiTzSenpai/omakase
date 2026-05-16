@@ -1,9 +1,15 @@
 """MyAnimeList adapter — fetches anime watch history and candidate pool.
 
-Uses the MAL API v2 (requires MAL_CLIENT_ID env var) for user data,
-and Jikan v4 REST API for the candidate pool.
+Two paths into the user's list:
+  1. Live API path: MAL API v2 (requires MAL_CLIENT_ID) — works only if the
+     user's list is set to Public.
+  2. Export-upload path: parse a MAL XML export (`animelist_*.xml` or its
+     gzipped form). Lets users with Private lists run the demo by dropping
+     their exported file in. No Client ID required on this path.
 
-To get a MAL Client ID:
+Candidate pool comes from Jikan v4 REST API on either path (no auth).
+
+To get a MAL Client ID (only for the live-API path):
   1. Go to https://myanimelist.net/apiconfig
   2. Register a new "Web" application (any name/URL works)
   3. Copy the Client ID
@@ -12,9 +18,11 @@ To get a MAL Client ID:
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import time
+import xml.etree.ElementTree as ET
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -97,6 +105,103 @@ def _parse_media(m: dict, source: str = "jikan") -> MediaItem:
         description=desc,
         mean_score=float(mean_score) if mean_score else None,
     )
+
+
+_MAL_STATUS_MAP = {
+    "Watching": "CURRENT",
+    "Completed": "COMPLETED",
+    "On-Hold": "PAUSED",
+    "On Hold": "PAUSED",
+    "Dropped": "DROPPED",
+    "Plan to Watch": "PLANNING",
+    "Plan To Watch": "PLANNING",
+    "Plan_to_Watch": "PLANNING",
+    "Plan_To_Watch": "PLANNING",
+}
+
+
+class MALExportError(ValueError):
+    """The uploaded file is not a recognizable MAL anime export."""
+
+
+def parse_mal_export(data: bytes) -> tuple[str, list[MediaItem]]:
+    """Parse a MAL anime-list export (`.xml` or `.xml.gz`) into history items.
+
+    Returns (username_from_export, history_items). Username may be empty
+    when MAL omits the <user_name> tag — callers should fall back to the
+    form-supplied username in that case.
+    """
+    if not data:
+        raise MALExportError("Uploaded file is empty.")
+    # MAL hands you a gzip; users sometimes pre-decompress, so accept both.
+    raw = gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as e:
+        raise MALExportError(f"Could not parse export XML: {e}") from e
+
+    if root.tag != "myanimelist":
+        raise MALExportError(
+            "Not a MAL anime-list export. The root element should be <myanimelist>; "
+            f"got <{root.tag}>. Make sure you exported the Anime list, not Manga."
+        )
+
+    myinfo = root.find("myinfo")
+    username = ""
+    if myinfo is not None:
+        un = myinfo.findtext("user_name")
+        if un:
+            username = un.strip()
+
+    items: list[MediaItem] = []
+    seen_ids: set[int] = set()
+    for anime in root.findall("anime"):
+        try:
+            mid = int((anime.findtext("series_animedb_id") or "0").strip())
+        except ValueError:
+            continue
+        if not mid or mid in seen_ids:
+            continue
+        seen_ids.add(mid)
+
+        title = (anime.findtext("series_title") or "").strip()
+        if not title:
+            continue
+        fmt = (anime.findtext("series_type") or "").strip()
+        episodes_raw = (anime.findtext("series_episodes") or "").strip()
+        try:
+            episodes = int(episodes_raw) if episodes_raw else None
+        except ValueError:
+            episodes = None
+
+        score_raw = (anime.findtext("my_score") or "").strip()
+        try:
+            score = float(score_raw) if score_raw else None
+        except ValueError:
+            score = None
+        if score == 0:
+            score = None  # MAL writes "0" for unscored entries.
+
+        status_raw = (anime.findtext("my_status") or "").strip()
+        status = _MAL_STATUS_MAP.get(status_raw, status_raw.upper().replace(" ", "_") or None)
+
+        items.append(
+            MediaItem(
+                id=mid,
+                title_romaji=title,
+                title_english=title,  # MAL export doesn't carry English titles separately.
+                format=fmt,
+                episodes=episodes,
+                score=score,
+                status=status,
+            )
+        )
+
+    if not items:
+        raise MALExportError(
+            "No <anime> entries found in the export. Did you export the Anime list?"
+        )
+    return username, items
 
 
 @register("myanimelist")
@@ -214,12 +319,26 @@ class MALAdapter(SourceAdapter):
         return items
 
     def fetch(self, username: str, pool_size: int = 100, **kwargs) -> SourceData:
-        history = self._fetch_history(username)
+        export_data: bytes | None = kwargs.get("export_data")
+        use_planning = kwargs.get("use_planning", False)
+
+        if export_data is not None:
+            export_username, history = parse_mal_export(export_data)
+            # Form-supplied username wins when present; the one in the XML is
+            # a fallback so the rest of the pipeline (logs, headers) has
+            # something to display.
+            username = (username or export_username or "").strip()
+        else:
+            history = self._fetch_history(username)
+
         exclude_ids = [m.id for m in history if m.id]
 
-        use_planning = kwargs.get("use_planning", False)
         if use_planning:
-            candidates = self._fetch_planning(username)
+            if export_data is not None:
+                # The plan-to-watch list lives in the same XML; reuse it.
+                candidates = [m for m in history if m.status == "PLANNING"]
+            else:
+                candidates = self._fetch_planning(username)
             # In planning mode the candidates ARE the planning list, so they
             # legitimately overlap with history. Only drop actively watched ones.
             watched_ids = {

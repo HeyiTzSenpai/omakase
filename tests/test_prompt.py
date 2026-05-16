@@ -54,3 +54,38 @@ def test_prompt_caps_recommendation_count_at_candidate_pool():
     candidates = [_media(f"Cand{i}", mid=100 + i) for i in range(3)]
     prompt = build_prompt(taste_profile="x", history=[], candidates=candidates)
     assert "recommend 3 anime" in prompt
+
+
+def test_prompt_empty_profile_uses_no_profile_branch():
+    """When no profile is provided, the prompt should explicitly tell the LLM
+    to infer taste from scores alone and widen the search."""
+    prompt = build_prompt(
+        taste_profile="",
+        history=[_media("Berserk", score=10, mid=1)],
+        candidates=[_media("Vinland Saga", mid=2)],
+    )
+    assert "NO WRITTEN TASTE PROFILE" in prompt
+    assert "THE USER'S OWN TASTE PROFILE" not in prompt
+    # The reasoning instruction should no longer reference the written profile.
+    assert "written taste profile" not in prompt
+
+
+def test_prompt_whitespace_only_profile_treated_as_empty():
+    prompt = build_prompt(
+        taste_profile="   \n  \t ",
+        history=[_media("Berserk", score=10, mid=1)],
+        candidates=[_media("Vinland Saga", mid=2)],
+    )
+    assert "NO WRITTEN TASTE PROFILE" in prompt
+
+
+def test_prompt_with_profile_keeps_written_profile_framing():
+    """Sanity check that the profiled branch still references the user's text."""
+    prompt = build_prompt(
+        taste_profile="I love morally complex protagonists.",
+        history=[_media("Berserk", score=10, mid=1)],
+        candidates=[_media("Vinland Saga", mid=2)],
+    )
+    assert "THE USER'S OWN TASTE PROFILE" in prompt
+    assert "NO WRITTEN TASTE PROFILE" not in prompt
+    assert "written taste profile" in prompt

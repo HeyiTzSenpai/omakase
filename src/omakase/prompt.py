@@ -87,15 +87,40 @@ def build_prompt(
     history: list[MediaItem],
     candidates: list[MediaItem],
 ) -> str:
-    """Assemble the full LLM prompt."""
+    """Assemble the full LLM prompt.
+
+    When `taste_profile` is empty (the user chose "broader recs from my
+    scores alone"), the profile section is swapped for an explicit
+    "no written guidance" framing. This deliberately widens the search:
+    the LLM has only the scoring history to work from, so recommendations
+    cluster around statistical patterns rather than a stated point of view.
+    """
     n_recs = min(len(candidates), 10)
+    has_profile = bool(taste_profile.strip())
+
+    if has_profile:
+        profile_section = f"""# THE USER'S OWN TASTE PROFILE
+{taste_profile}
+
+Read the profile above carefully. This is the user describing what they love and hate in their own words. Treat this as the primary signal about their taste."""
+        analysis_step = (
+            "Start by analyzing what makes this user tick — combine their written taste "
+            "profile with their actual scoring patterns. Which genres, studios, formats, "
+            "and story traits consistently earn 8+? Which ones get low scores?"
+        )
+    else:
+        profile_section = """# NO WRITTEN TASTE PROFILE
+The user did not provide a written profile. Their taste must be inferred *entirely* from how they've scored anime below. Lean toward broader, statistically grounded picks — anything with strong overlap to their 8+ rated entries is fair game. Do not invent preferences the scores don't support."""
+        analysis_step = (
+            "Start by analyzing what makes this user tick from their scoring patterns alone "
+            "— the user did not write a profile. Which genres, studios, formats, and story "
+            "traits consistently earn 8+? Which ones get low scores? Be willing to cast a "
+            "wider net than you would with explicit guidance."
+        )
 
     prompt = f"""You are a recommendation engine for one user. Your task is to deeply understand their personal taste — both from what they say about themselves and from how they've scored anime — then recommend {n_recs} anime they'll love.
 
-# THE USER'S OWN TASTE PROFILE
-{taste_profile}
-
-Read the profile above carefully. This is the user describing what they love and hate in their own words. Treat this as the primary signal about their taste.
+{profile_section}
 
 # USER RATING HISTORY ({len(history)} titles)
 Every anime this user has scored or interacted with. The scores are their honest ratings.
@@ -106,14 +131,14 @@ Every anime this user has scored or interacted with. The scores are their honest
 
 # HOW TO RECOMMEND
 
-1. Start by analyzing what makes this user tick — combine their written taste profile with their actual scoring patterns. Which genres, studios, formats, and story traits consistently earn 8+? Which ones get low scores?
+1. {analysis_step}
 2. Identify what their highly-rated entries have in common that their low-rated entries lack.
 3. From the candidate pool, pick the {n_recs} best matches. Be critical — a 7 is a solid recommendation, not everything needs to be a 10.
 
 For each recommendation provide:
 - title (use English if available, else romaji)
 - predicted_score (1-10 — be honest, don't inflate)
-- reasoning (2-3 sentences tying it to SPECIFIC anime they've scored AND to their written taste profile)
+- reasoning ({"2-3 sentences tying it to SPECIFIC anime they've scored AND to their written taste profile" if has_profile else "2-3 sentences tying it to SPECIFIC anime they've scored that share the same elements"})
 - best_match_from_history (one title from their history this most resembles)
 
 # STRICT RULES

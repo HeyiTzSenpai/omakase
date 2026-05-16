@@ -6,6 +6,7 @@ Or:        python -m omakase web
 
 from __future__ import annotations
 
+import base64
 import os
 from pathlib import Path
 
@@ -18,10 +19,15 @@ from pydantic import BaseModel
 
 from omakase import __version__
 from omakase.adapters.base import list_sources
+from omakase.adapters.myanimelist import MALExportError
 from omakase.engine import EmptyHistoryError
 from omakase.engine import run as run_pipeline
 from omakase.llm import list_backends
 from omakase.types import DEFAULT_URLS, MODEL_PRESETS, OmakaseConfig, resolve_model_preset
+
+# Hard cap on the uploaded MAL export. A 5000-entry list compresses to
+# well under 1 MB; this is the "user uploaded the wrong file" guardrail.
+_MAX_EXPORT_BYTES = 10 * 1024 * 1024
 
 _HERE = Path(__file__).resolve().parent
 
@@ -57,6 +63,7 @@ class RecommendRequest(BaseModel):
     llm_url: str = "http://localhost:11434"
     api_key: str | None = ""  # LLM API key
     mal_client_id: str | None = ""  # MAL Client ID (source-specific)
+    mal_export_b64: str | None = ""  # base64-encoded MAL XML export (alternative to Client ID)
     model: str = "qwen2.5:7b"
     source: str = "anilist"
     username: str = ""
@@ -65,6 +72,7 @@ class RecommendRequest(BaseModel):
     temperature: float = 0.4
     mode: str = "fast"
     use_planning: bool = False
+    skip_profile: bool = False  # broader recs inferred from scoring history alone
 
 
 class RecommendationOut(BaseModel):
@@ -106,23 +114,58 @@ async def index():
 
 @app.post("/api/recommend", response_model=RecommendResponse)
 async def recommend(req: RecommendRequest):
-    if not req.username.strip():
+    export_data: bytes | None = None
+    if req.mal_export_b64:
+        try:
+            export_data = base64.b64decode(req.mal_export_b64, validate=True)
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded export couldn't be decoded. Try re-uploading the file.",
+            )
+        if len(export_data) > _MAX_EXPORT_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Export file is too large ({len(export_data) // 1024} KB). "
+                    f"Max is {_MAX_EXPORT_BYTES // (1024 * 1024)} MB — "
+                    "are you sure you uploaded the right file?"
+                ),
+            )
+        if req.source != "myanimelist":
+            raise HTTPException(
+                status_code=400,
+                detail="Export upload is currently MAL-only. Switch the Source to MyAnimeList.",
+            )
+
+    if not export_data and not req.username.strip():
         raise HTTPException(status_code=400, detail="Username is required")
-    if not req.profile.strip() and not req.use_planning:
+    if not req.profile.strip() and not req.use_planning and not req.skip_profile:
         raise HTTPException(
             status_code=400,
-            detail="Taste profile is required (or enable Plan to Watch)",
+            detail=(
+                "Taste profile is required — or enable Plan to Watch, or check "
+                "'Skip profile' for broader recs from your scores alone."
+            ),
         )
 
     # Persist the inline profile to a file so the engine can re-read it.
-    profile_path = Path.home() / ".omakase" / "profile.md"
-    profile_path.parent.mkdir(parents=True, exist_ok=True)
-    profile_path.write_text(req.profile, encoding="utf-8")
+    # Skip-profile path: leave the path empty so the engine takes the
+    # no-profile branch instead of re-reading a leftover file.
+    if req.skip_profile and not req.profile.strip():
+        profile_path_str = ""
+    else:
+        profile_path = Path.home() / ".omakase" / "profile.md"
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        profile_path.write_text(req.profile, encoding="utf-8")
+        profile_path_str = str(profile_path)
 
-    # Stage credentials in env for downstream clients to pick up.
+    # Stage credentials in env for downstream clients to pick up. The
+    # export path bypasses MAL_CLIENT_ID entirely — don't stage one just
+    # because the user happened to leave a stale value in the field.
     if req.api_key:
         os.environ["OMAKASE_API_KEY"] = req.api_key
-    if req.mal_client_id:
+    if req.mal_client_id and not export_data:
         os.environ["MAL_CLIENT_ID"] = req.mal_client_id
 
     llm_url, llm_type, model, supports_json = resolve_model_preset(
@@ -134,20 +177,23 @@ async def recommend(req: RecommendRequest):
 
     cfg = OmakaseConfig(
         source=req.source,
-        username=req.username.strip(),
+        username=req.username.strip() or "uploaded-list",
         llm_url=llm_url,
         model=model,
-        profile_path=str(profile_path),
+        profile_path=profile_path_str,
         candidate_pool_size=req.pool_size,
         temperature=req.temperature,
         llm_type=llm_type,
         mode=req.mode,
         supports_json_mode=supports_json,
         use_planning=req.use_planning,
+        export_data=export_data,
     )
 
     try:
         recs = run_pipeline(cfg)
+    except MALExportError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except EmptyHistoryError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except httpx.ConnectError:

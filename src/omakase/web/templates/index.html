@@ -131,7 +131,23 @@
           <div class="field" id="mal-key-field" style="display:none">
             <label class="field__label" for="mal_client_id">MAL Client ID</label>
             <input id="mal_client_id" class="field__input" type="password" placeholder="MAL Client ID">
-            <div class="field__hint">Get one at <a href="https://myanimelist.net/apiconfig" target="_blank" rel="noopener">myanimelist.net/apiconfig</a> (free).</div>
+            <div class="field__hint">Get one at <a href="https://myanimelist.net/apiconfig" target="_blank" rel="noopener">myanimelist.net/apiconfig</a> (free). <strong>Your list must be Public.</strong></div>
+          </div>
+          <div class="field" id="mal-upload-field" style="display:none">
+            <label class="field__label" for="mal_export_file">Private list? Upload your MAL export instead</label>
+            <div class="upload">
+              <input id="mal_export_file" class="upload__input" type="file" accept=".xml,.gz,application/xml,text/xml,application/gzip" onchange="onMalFileSelected()">
+              <label for="mal_export_file" class="btn btn--secondary upload__trigger">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;">📂</span>
+                <span id="upload-trigger-label">Choose export file</span>
+              </label>
+              <button type="button" class="upload__clear" id="upload-clear" onclick="clearMalFile()" style="display:none" aria-label="Remove uploaded file">×</button>
+            </div>
+            <div class="field__hint">
+              Skips the Client ID + public-list requirement. Download yours at
+              <a href="https://myanimelist.net/panel.php?go=export" target="_blank" rel="noopener">myanimelist.net/panel.php?go=export</a>
+              — pick <em>Anime</em>, then drop the <code>.xml.gz</code> file here.
+            </div>
           </div>
           <div class="field">
             <label class="field__label">
@@ -152,9 +168,16 @@
             </div>
           </div>
           <div class="field">
+            <label class="field__label">
+              <input type="checkbox" id="skip_profile" onchange="toggleSkipProfile()" style="margin-right: var(--space-2);">
+              Skip the profile — recommend from my scores alone (broader, less personalized)
+            </label>
+            <div class="field__hint">Use this if you'd rather get a wider net based on what you've rated highly — no writing required.</div>
+          </div>
+          <div class="field" id="profile-field">
             <label class="field__label" for="profile">Profile</label>
             <textarea id="profile" class="field__textarea" placeholder="## Things I love&#10;- Morally complex protagonists&#10;- Dense world-building&#10;&#10;## Things I bounce off&#10;- ...">{% if default_profile %}{{ default_profile }}{% endif %}</textarea>
-            <div class="field__hint">Markdown. Be specific — mention shows, characters, genres, studios. This is what makes the LLM understand you.</div>
+            <div class="field__hint" id="profile-hint">Markdown. Be specific — mention shows, characters, genres, studios. This is what makes the LLM understand you.</div>
           </div>
         </div>
 
@@ -196,6 +219,8 @@
   <script>
     let BACKENDS = { default_urls: {}, presets: {} };
     let currentMode = 'fast';
+    let malExportB64 = '';  // populated when user uploads a MAL XML export
+    const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
     const REQUIRES_API_KEY = new Set([
       'openai', 'anthropic', 'gemini', 'deepseek',
@@ -375,25 +400,28 @@
         ? document.getElementById('model-select').value
         : document.getElementById('model').value;
 
+      const skipProfile = document.getElementById('skip_profile').checked;
       const config = {
         llm_type: llmType,
         llm_url: document.getElementById('llm_url').value.replace(/\/+$/, ''),
         api_key: document.getElementById('api_key').value,
         mal_client_id: document.getElementById('mal_client_id').value,
+        mal_export_b64: malExportB64,
         model: model,
         source: document.getElementById('source').value,
         username: document.getElementById('username').value,
-        profile: document.getElementById('profile').value,
+        profile: skipProfile ? '' : document.getElementById('profile').value,
         mode: currentMode,
         use_planning: document.getElementById('use_planning').checked,
+        skip_profile: skipProfile,
       };
 
-      if (!config.username.trim()) {
-        showError('Enter a username for the data source.');
+      if (!malExportB64 && !config.username.trim()) {
+        showError('Enter a username for the data source, or upload your MAL export.');
         return;
       }
-      if (!config.use_planning && !config.profile.trim()) {
-        showError('Write a taste profile so the LLM knows what you like, or check "Recommend from my Plan to Watch".');
+      if (!config.use_planning && !skipProfile && !config.profile.trim()) {
+        showError('Write a taste profile, check "Skip the profile" for broader recs, or check "Recommend from my Plan to Watch".');
         return;
       }
 
@@ -483,22 +511,67 @@
       const username = document.getElementById('username');
       const hint = document.getElementById('username-hint');
       const malField = document.getElementById('mal-key-field');
+      const malUpload = document.getElementById('mal-upload-field');
 
       if (source === 'myanimelist') {
         username.placeholder = 'Your MAL username';
-        hint.textContent = 'Your public MyAnimeList username.';
+        hint.textContent = 'Your public MyAnimeList username — or skip this and upload your export below.';
         malField.style.display = 'block';
+        malUpload.style.display = 'block';
       } else {
         username.placeholder = 'Your AniList username';
         hint.textContent = 'Your public AniList username.';
         malField.style.display = 'none';
+        malUpload.style.display = 'none';
+        clearMalFile();
       }
+    }
+
+    function onMalFileSelected() {
+      const input = document.getElementById('mal_export_file');
+      const label = document.getElementById('upload-trigger-label');
+      const clearBtn = document.getElementById('upload-clear');
+      const file = input.files && input.files[0];
+      if (!file) {
+        clearMalFile();
+        return;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        showError('That file is over 10 MB — much bigger than any real MAL export. Double-check you picked the right file.');
+        clearMalFile();
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function () {
+        // FileReader's result is a data URL like "data:...;base64,XXXX".
+        const result = reader.result || '';
+        const comma = result.indexOf(',');
+        malExportB64 = comma >= 0 ? result.slice(comma + 1) : '';
+        label.textContent = file.name + ' · ready';
+        clearBtn.style.display = 'inline-flex';
+        clearError();
+      };
+      reader.onerror = function () {
+        showError('Could not read that file. Try a different one.');
+        clearMalFile();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearMalFile() {
+      malExportB64 = '';
+      const input = document.getElementById('mal_export_file');
+      if (input) input.value = '';
+      const label = document.getElementById('upload-trigger-label');
+      if (label) label.textContent = 'Choose export file';
+      const clearBtn = document.getElementById('upload-clear');
+      if (clearBtn) clearBtn.style.display = 'none';
     }
 
     function togglePlanning() {
       const checked = document.getElementById('use_planning').checked;
       const profileField = document.getElementById('profile');
-      const hint = profileField.nextElementSibling;
+      const hint = document.getElementById('profile-hint');
       if (checked) {
         profileField.placeholder = '(Optional when using Plan to Watch)';
         hint.textContent = 'Optional — your planning list already reflects your interests.';
@@ -506,6 +579,15 @@
         profileField.placeholder = '## Things I love\n- Morally complex protagonists\n- Dense world-building\n\n## Things I bounce off\n- ...';
         hint.textContent = 'Markdown. Be specific — mention shows, characters, genres, studios. This is what makes the LLM understand you.';
       }
+    }
+
+    function toggleSkipProfile() {
+      const skip = document.getElementById('skip_profile').checked;
+      const field = document.getElementById('profile-field');
+      // Hide the textarea entirely when the user opts out of writing a profile.
+      // The submit handler also strips the textarea value in that case so any
+      // stale draft can't leak into the request.
+      field.style.display = skip ? 'none' : 'block';
     }
 
     function escapeHtml(str) {

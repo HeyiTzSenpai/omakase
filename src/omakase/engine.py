@@ -106,7 +106,14 @@ def _resolve_rec_urls(
 
 
 def _load_taste_profile(path: str) -> str:
-    """Load taste profile from a markdown file."""
+    """Load taste profile from a markdown file.
+
+    An empty `path` means "no profile" — caller has opted into broader,
+    score-only recommendations. Returns an empty string in that case so
+    the prompt builder takes its no-profile branch.
+    """
+    if not path:
+        return ""
     try:
         with open(path, encoding="utf-8") as f:
             return f.read().strip()
@@ -119,13 +126,27 @@ def _load_taste_profile(path: str) -> str:
 def run(cfg: OmakaseConfig) -> list[Recommendation]:
     """Run the full recommendation pipeline and return recommendations."""
     # 1. Fetch data from source
-    print(f"  [1/5] Fetching data from {cfg.source} for '{cfg.username}'...")
+    src_desc = (
+        f"uploaded export ({len(cfg.export_data)} bytes)"
+        if cfg.export_data
+        else f"'{cfg.username}'"
+    )
+    print(f"  [1/5] Fetching data from {cfg.source} for {src_desc}...")
     adapter = get_adapter(cfg.source)
     data: SourceData = adapter.fetch(
-        cfg.username, cfg.candidate_pool_size, use_planning=cfg.use_planning
+        cfg.username,
+        cfg.candidate_pool_size,
+        use_planning=cfg.use_planning,
+        export_data=cfg.export_data,
     )
 
     if not data.history:
+        if cfg.export_data:
+            raise EmptyHistoryError(
+                "The uploaded export had no scored anime entries. "
+                "Make sure you exported the Anime list (not Manga) and that it "
+                "contains rated titles."
+            )
         raise EmptyHistoryError(
             f"No anime history found for '{cfg.username}' on {cfg.source}. "
             "Double-check the username (it's case-sensitive on some sources) "
@@ -148,10 +169,16 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
     source_label = "plan-to-watch" if cfg.use_planning else "popular"
     print(f"        Candidates: {len(data.candidates)} ({source_label})")
 
-    # 2. Load taste profile
-    print(f"  [2/5] Loading taste profile from {cfg.profile_path}...")
+    # 2. Load taste profile (may be intentionally empty for broader recs)
+    if cfg.profile_path:
+        print(f"  [2/5] Loading taste profile from {cfg.profile_path}...")
+    else:
+        print("  [2/5] Skipping taste profile (broader recs from scores alone)...")
     taste_profile = _load_taste_profile(cfg.profile_path)
-    print(f"        Profile: {len(taste_profile.split())} words")
+    if taste_profile:
+        print(f"        Profile: {len(taste_profile.split())} words")
+    else:
+        print("        Profile: (none — inferring taste from scoring history)")
 
     # 3. Build prompt
     print(f"  [3/5] Building prompt for {cfg.model}...")

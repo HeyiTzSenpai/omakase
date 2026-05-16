@@ -62,6 +62,7 @@ class OmakaseConfig:
     mode: str = "fast"  # fast or pro — controls model preset
     supports_json_mode: bool = True  # some models don't support response_format
     use_planning: bool = False  # use user's Planning list as candidates
+    export_data: bytes | None = None  # raw uploaded list export (MAL XML or .xml.gz)
 
 
 # Default API base URLs for each backend.
