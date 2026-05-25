@@ -13,7 +13,7 @@ from pathlib import Path
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -110,6 +110,11 @@ async def index():
     # import time (see `_asset_version`).
     html = html.replace("{{ asset_version }}", _ASSET_VERSION)
     return html
+
+
+@app.get("/favicon.ico")
+async def favicon_ico():
+    return FileResponse(_HERE / "static" / "favicon.svg", media_type="image/svg+xml")
 
 
 @app.post("/api/recommend", response_model=RecommendResponse)
