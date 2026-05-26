@@ -139,3 +139,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the two extension points (LLM backend
 ## License
 
 MIT. See [LICENSE](LICENSE).
+<!-- CodeRabbit trigger smoke: 2026-05-26. Close this PR unmerged after review proof. -->
