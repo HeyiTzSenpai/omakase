@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+enable_free_tier: true
+tone_instructions: "Be concise, practical, and kind. Prioritize correctness, security, regressions, tests, and maintainability over style nits."
+inheritance: false
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  review_details: false
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "[skip review]"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+  path_filters:
+    - "!**/__pycache__/**"
+    - "!**/.pytest_cache/**"
+    - "!**/.ruff_cache/**"
+    - "!**/.mypy_cache/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/*.egg-info/**"
+    - "!**/coverage/**"
+    - "!**/*.lock"
+    - "!**/uv.lock"
+    - "!**/*.min.*"
+    - "!preview-*.png"
+  path_instructions:
+    - path: "src/omakase/**"
+      instructions: |
+        - Review as Python CLI, LLM adapter, and lightweight web app code.
+        - Apply repository conventions from README.md and CONTRIBUTING.md.
+        - Focus on API boundaries, provider error handling, prompt safety, secrets hygiene, and user-visible web regressions.
+    - path: "tests/**"
+      instructions: |
+        - Check that pytest coverage matches changed behavior and includes failure paths for adapters, prompts, and web routes.
+    - path: "compose.yaml"
+      instructions: |
+        - Treat runtime and deploy settings as shared-state sensitive.
+        - Check exposed ports, volumes, environment variables, and durable defaults.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "README.md"
+      - "CONTRIBUTING.md"
+  learnings:
+    scope: "local"
+
+chat:
+  auto_reply: true
+
+code_generation: {}
+issue_enrichment: {}
