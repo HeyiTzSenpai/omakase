@@ -546,7 +546,7 @@ async def settings_page(
     api_stored = {k: v for k, v in stored.items() if k != "llm_backend"}
 
     stored_backend = read_secret(db, user.id, "llm_backend") or "openai"
-    backends = sorted(list_backends().keys())
+    backends = sorted(list_backends())
 
     return templates.TemplateResponse(
         request,
