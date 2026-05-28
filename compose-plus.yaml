@@ -24,5 +24,5 @@ services:
       ANILIST_CLIENT_ID: ${ANILIST_CLIENT_ID:-}
       ANILIST_CLIENT_SECRET: ${ANILIST_CLIENT_SECRET:-}
     volumes:
-      - ./data:/app/data
+      - ./data:/home/omakase/data
     # No watchtower label — this is a private instance, manually updated.
