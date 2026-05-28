@@ -11,6 +11,10 @@ pct enter 101
 
 # Create the stack directory
 mkdir -p /opt/stacks/omakase-plus/data
+# Container runs as UID 1000 (the `omakase` user from the Dockerfile);
+# the bind-mounted data dir must be writable by that UID or SQLite will
+# fail with "unable to open database file" on first signup.
+chown -R 1000:1000 /opt/stacks/omakase-plus/data
 cd /opt/stacks/omakase-plus
 
 # Create .env file (fill in real values)
