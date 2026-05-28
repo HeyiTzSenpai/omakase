@@ -299,6 +299,69 @@ class TestRunRecommendation:
         assert resp.status_code in (302, 401)
 
 
+class TestDefaultAniListUsername:
+    def test_settings_saves_and_dashboard_prefills_username(self, client):
+        """Saving a default AniList username pre-fills the dashboard form input."""
+        try:
+            _signup_and_login(client)
+
+            resp = client.post(
+                "/plus/settings",
+                data={"anilist_username": "HeyiTzSenpai"},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 302
+
+            html = client.get("/plus/dashboard").text
+            assert 'name="username"' in html
+            assert 'value="HeyiTzSenpai"' in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_blank_run_uses_stored_default_username(self, client):
+        """A run with a blank username falls back to the stored default, not email."""
+        captured = {}
+
+        def _capture(cfg):
+            captured["username"] = cfg.username
+            return []
+
+        try:
+            _signup_and_login(client)
+            client.post("/plus/settings", data={"anilist_username": "HeyiTzSenpai"})
+
+            with patch("omakase.plus.routes.run_pipeline", side_effect=_capture):
+                resp = client.post(
+                    "/plus/api/run",
+                    json={"source": "anilist", "mode": "fast", "count": 8, "username": ""},
+                )
+            assert resp.status_code == 200
+            assert captured["username"] == "HeyiTzSenpai"
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_typed_username_overrides_stored_default(self, client):
+        """An explicitly typed username wins over the stored default."""
+        captured = {}
+
+        def _capture(cfg):
+            captured["username"] = cfg.username
+            return []
+
+        try:
+            _signup_and_login(client)
+            client.post("/plus/settings", data={"anilist_username": "HeyiTzSenpai"})
+
+            with patch("omakase.plus.routes.run_pipeline", side_effect=_capture):
+                client.post(
+                    "/plus/api/run",
+                    json={"source": "anilist", "mode": "fast", "count": 8, "username": "someoneelse"},
+                )
+            assert captured["username"] == "someoneelse"
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+
 class TestPlanButton:
     def test_plan_button_creates_planning_and_request(self, client):
         """POST /plus/dashboard/plan inserts planning row."""

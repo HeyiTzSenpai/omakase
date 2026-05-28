@@ -235,6 +235,8 @@ async def dashboard(
     taste_profile_content = tp["content"] if tp else ""
     taste_profile_updated = tp["updated_at"] if tp else ""
 
+    anilist_username = read_secret(db, user.id, "anilist_username") or ""
+
     # Load recent runs (last 10)
     recent_rows = db.execute(
         """SELECT id, source, model, picks, created_at
@@ -314,6 +316,7 @@ async def dashboard(
             "email": user.email,
             "taste_profile": taste_profile_content,
             "taste_profile_updated": taste_profile_updated,
+            "anilist_username": anilist_username,
             "runs": runs,
             "current_run_picks": current_run_picks,
             "current_run_id": current_run_id,
@@ -391,9 +394,10 @@ async def api_run(
         tmp.close()
         profile_path = tmp.name
 
+    default_username = read_secret(db, user.id, "anilist_username") or ""
     cfg = OmakaseConfig(
         source=source,
-        username=username.strip() or user.email.split("@")[0],
+        username=username.strip() or default_username or user.email.split("@")[0],
         llm_url=llm_url,
         model=model_resolved,
         profile_path=profile_path,
@@ -488,9 +492,10 @@ async def dashboard_run(
         tmp.close()
         profile_path = tmp.name
 
+    default_username = read_secret(db, user.id, "anilist_username") or ""
     cfg = OmakaseConfig(
         source=source,
-        username=username.strip() or user.email.split("@")[0],
+        username=username.strip() or default_username or user.email.split("@")[0],
         llm_url=llm_url,
         model=model_resolved,
         profile_path=profile_path,
@@ -772,6 +777,8 @@ async def settings_page(
     stored_backend = read_secret(db, user.id, "llm_backend") or "openai"
     backends = sorted(list_backends())
 
+    anilist_username = read_secret(db, user.id, "anilist_username") or ""
+
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -782,6 +789,7 @@ async def settings_page(
             "saved": saved,
             "backends": backends,
             "stored_backend": stored_backend,
+            "anilist_username": anilist_username,
         },
     )
 
@@ -803,6 +811,15 @@ async def settings_post(
             saved_keys.append(key_name)
         elif form.get(f"delete_{key_name}", ""):
             delete_secret(db, user_id, key_name)
+
+    # AniList username is a plain (non-masked) preference, not a secret key —
+    # store the submitted value directly, or clear it when blanked.
+    anilist_username = form.get("anilist_username", "").strip()
+    if anilist_username:
+        store_secret(db, user_id, "anilist_username", anilist_username)
+        saved_keys.append("anilist_username")
+    elif "anilist_username" in form:
+        delete_secret(db, user_id, "anilist_username")
 
     msg = f"Saved: {', '.join(saved_keys)}" if saved_keys else "No changes made."
     return RedirectResponse(url=f"/plus/settings?saved={msg}", status_code=302)

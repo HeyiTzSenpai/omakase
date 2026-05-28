@@ -69,6 +69,16 @@ input:focus,select:focus{outline:none;border-color:var(--purple);box-shadow:0 0 
     </select>
   </div>
 
+  <!-- Default AniList username -->
+  <div class="card">
+    <div class="card-header">
+      <label for="anilist_username">Default AniList username</label>
+      <span class="badge {% if anilist_username %}badge-stored{% else %}badge-empty{% endif %}">{{ 'Set' if anilist_username else 'Not set' }}</span>
+    </div>
+    <p class="desc">Used automatically when you leave the username blank on the dashboard.</p>
+    <input type="text" id="anilist_username" name="anilist_username" value="{{ anilist_username }}" placeholder="e.g. HeyiTzSenpai" autocomplete="off">
+  </div>
+
   {% for key_name, desc in keys.items() %}
   <div class="card">
     <div class="card-header">
