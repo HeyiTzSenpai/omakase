@@ -279,7 +279,8 @@ async def dashboard(
 
     # Load planning queue
     planning_rows = db.execute(
-        """SELECT id, anilist_id, title, added_at, status as planning_status, rd_torrent_id
+        """SELECT id, anilist_id, title, added_at, status as planning_status,
+                  download_status, download_info, rd_torrent_id
            FROM anilist_plannings
            WHERE user_id = ?
            ORDER BY added_at DESC
@@ -297,6 +298,8 @@ async def dashboard(
             "title": p["title"],
             "added_at": p["added_at"],
             "planning_status": p["planning_status"],
+            "download_status": p["download_status"] or "",
+            "download_info": p["download_info"] or "",
             "rd_torrent_id": p["rd_torrent_id"] or "",
         })
 
@@ -526,20 +529,34 @@ async def dashboard_plan_and_download(
 
     if result["status"] == "ok":
         rd_id = result.get("rd_id", "")
-        msg += f" · Downloading: {result.get('torrent_title', title)} ({result.get('size', '?')}, {result.get('seeders', 0)} seeds)"
-        # Store RD torrent ID so we can delete it later
-        if rd_id:
-            db.execute(
-                "UPDATE anilist_plannings SET rd_torrent_id = ? WHERE user_id = ? AND anilist_id = ?",
-                (rd_id, user.id, anilist_id),
-            )
-            db.commit()
+        info = f"{result.get('torrent_title', title)} ({result.get('size', '?')}, {result.get('seeders', 0)}s)"
+        msg += f" · Downloading: {info}"
+        db.execute(
+            "UPDATE anilist_plannings SET download_status = ?, download_info = ?, rd_torrent_id = ? WHERE user_id = ? AND anilist_id = ?",
+            ("requested", info, rd_id, user.id, anilist_id),
+        )
+        db.commit()
     elif result["status"] == "no_rd_key":
         msg += " · Set Real-Debrid API key in Settings to auto-download"
+        db.execute(
+            "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
+            ("no_rd_key", user.id, anilist_id),
+        )
+        db.commit()
     elif result["status"] == "not_found":
         msg += f" · No torrents found on nyaa.si for \"{title}\""
+        db.execute(
+            "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
+            ("not_found", user.id, anilist_id),
+        )
+        db.commit()
     elif result["status"] == "rd_error":
         msg += f" · Real-Debrid: {result.get('detail', 'error')}"
+        db.execute(
+            "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
+            ("error", user.id, anilist_id),
+        )
+        db.commit()
 
     return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
 

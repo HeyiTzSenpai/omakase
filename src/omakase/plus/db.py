@@ -85,6 +85,11 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     pending.sort(key=lambda x: x[0])
     for _, name, path in pending:
         sql = path.read_text(encoding="utf-8")
-        conn.executescript(sql)
+        try:
+            conn.executescript(sql)
+        except sqlite3.OperationalError as e:
+            # Gracefully skip if columns/tables already exist (idempotent)
+            if "duplicate column" not in str(e).lower() and "already exists" not in str(e).lower():
+                raise
         conn.execute("INSERT INTO _migrations (name) VALUES (?)", (name,))
         conn.commit()

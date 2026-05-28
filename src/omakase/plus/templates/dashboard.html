@@ -266,13 +266,17 @@ tr:hover td{background:rgba(124,58,237,0.04)}
       <td><a href="https://anilist.co/anime/{{ p.anilist_id }}/" target="_blank" rel="noopener">{{ p.title }}</a></td>
       <td>{% if p.planning_status == 'PLANNING' %}<span class="badge badge-green">Planned</span>{% else %}<span class="badge badge-gray">{{ p.planning_status }}</span>{% endif %}</td>
       <td>
-        {% if p.rd_torrent_id %}
-        <span class="badge badge-purple">RD</span>
-        <form method="post" action="/plus/dashboard/remove-from-rd" style="display:inline">
-          <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
-          <button type="submit" class="btn-remove" style="margin-left:0.2rem">Del</button>
-        </form>
-        {% else %}<span style="color:var(--text3);font-size:0.72rem">—</span>{% endif %}
+        {% if p.download_status == 'requested' %}
+        <span class="badge badge-purple" title="{{ p.download_info }}">Downloading</span>
+        {% elif p.download_status == 'not_found' %}
+        <span class="badge badge-yellow">Not found</span>
+        {% elif p.download_status == 'no_rd_key' %}
+        <span class="badge badge-gray">No RD key</span>
+        {% elif p.download_status == 'error' %}
+        <span class="badge badge-red">Error</span>
+        {% else %}
+        <span style="color:var(--text3);font-size:0.72rem">—</span>
+        {% endif %}
       </td>
       <td style="color:var(--text3);font-size:0.78rem">{{ p.added_at }}</td>
       <td>
