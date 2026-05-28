@@ -535,6 +535,45 @@ async def dashboard_plan_and_download(
     return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
 
 
+@router.post("/dashboard/remove-plan")
+async def dashboard_remove_plan(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    anilist_id: int = Form(...),
+):
+    """Remove an anime from AniList Planning and the local database."""
+    title = ""
+
+    # Remove from AniList (best-effort)
+    client_id = os.getenv("ANILIST_CLIENT_ID", "")
+    client_secret = os.getenv("ANILIST_CLIENT_SECRET", "")
+    base_url = os.getenv("OMAKASE_PLUS_URL", "http://localhost:8765")
+    redirect_uri = f"{base_url}/plus/integrations/anilist/callback"
+    try:
+        with with_valid_token(db, user.id, client_id, client_secret, redirect_uri) as token:
+            from omakase.plus.anilist import remove_from_planning
+
+            remove_from_planning(token, anilist_id)
+    except (ValueError, httpx.HTTPError):
+        pass
+
+    # Remove from local database
+    row = db.execute(
+        "SELECT title FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
+        (user.id, anilist_id),
+    ).fetchone()
+    if row:
+        title = row["title"]
+        db.execute(
+            "DELETE FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
+            (user.id, anilist_id),
+        )
+        db.commit()
+
+    msg = f"Removed \"{title}\" from planning list" if title else "Removed from planning list"
+    return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
+
+
 # ── Settings (secrets management) ───────────────────────────
 
 _SECRET_KEYS = {

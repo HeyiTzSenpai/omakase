@@ -103,9 +103,12 @@ td a{color:var(--purple-bright);text-decoration:none}
 td a:hover{color:var(--purple-glow)}
 tr:hover td{background:rgba(124,58,237,0.04)}
 
-/* Error / Empty */
-.error-banner{background:rgba(252,165,165,0.08);border:1px solid rgba(252,165,165,0.2);color:var(--red);padding:0.6rem 1rem;border-radius:6px;font-size:0.82rem;margin-bottom:1rem}
+/* Messages */
+.msg{background:rgba(252,165,165,0.08);border:1px solid rgba(252,165,165,0.2);color:var(--red);padding:0.6rem 1rem;border-radius:6px;font-size:0.82rem;margin-bottom:1rem}
+.msg--ok{background:rgba(167,243,208,0.08);border:1px solid rgba(167,243,208,0.2);color:var(--green)}
 .empty{text-align:center;padding:3rem 1rem;color:var(--text3);font-size:0.9rem}
+.btn-remove{background:none;border:1px solid rgba(252,165,165,0.25);color:var(--red);padding:0.15rem 0.5rem;font-size:0.68rem;border-radius:4px;cursor:pointer;font-family:inherit;margin-left:0.3rem}
+.btn-remove:hover{background:rgba(252,165,165,0.1)}
 
 /* Loading — matches public omakase site */
 .loading{display:none;flex-direction:column;align-items:center;gap:0.75rem;padding:2.5rem 1rem}
@@ -132,7 +135,7 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 </div>
 
 {% if error %}
-<div class="error-banner">{{ error }}</div>
+<div class="msg {% if 'Removed' in error or 'Planned' in error or 'Downloading' in error %}msg--ok{% endif %}">{{ error }}</div>
 {% endif %}
 
 <!-- Taste Profile -->
@@ -222,6 +225,10 @@ tr:hover td{background:rgba(124,58,237,0.04)}
     {% set aid = pick.anilist_id %}
     {% if aid and aid in planned_ids %}
     <span class="badge badge-green">Planned</span>
+    <form method="post" action="/plus/dashboard/remove-plan" style="display:inline">
+      <input type="hidden" name="anilist_id" value="{{ aid }}">
+      <button type="submit" class="btn-remove">Remove</button>
+    </form>
     {% elif aid %}
     <form method="post" action="/plus/dashboard/plan-and-download" style="display:inline">
       <input type="hidden" name="anilist_id" value="{{ aid }}">
@@ -260,7 +267,7 @@ tr:hover td{background:rgba(124,58,237,0.04)}
       <td>{% if p.planning_status == 'PLANNING' %}<span class="badge badge-green">Planned</span>{% else %}<span class="badge badge-gray">{{ p.planning_status }}</span>{% endif %}</td>
       <td style="color:var(--text3);font-size:0.78rem">{{ p.added_at }}</td>
       <td>
-        <form method="post" action="/plus/dashboard/unplan" style="display:inline">
+        <form method="post" action="/plus/dashboard/remove-plan" style="display:inline">
           <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
           <button type="submit" class="btn btn-ghost" style="font-size:0.7rem;padding:0.2rem 0.5rem">Remove</button>
         </form>

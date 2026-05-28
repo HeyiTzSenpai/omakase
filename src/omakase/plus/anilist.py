@@ -127,6 +127,64 @@ def is_token_valid(access_token: str) -> bool:
         return False
 
 
+def remove_from_planning(access_token: str, anilist_id: int) -> bool:
+    """Remove an anime from the authenticated user's AniList list.
+
+    Finds the list entry for the given media ID, then deletes it.
+    Returns True if the entry was found and deleted, False if not found.
+    """
+    # First, find the list entry ID
+    find_query = """
+    query ($mediaId: Int) {
+      MediaList(mediaId: $mediaId) {
+        id
+        status
+      }
+    }
+    """
+    with httpx.Client() as client:
+        resp = client.post(
+            API_URL,
+            json={"query": find_query, "variables": {"mediaId": anilist_id}},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+        )
+        if resp.status_code != 200:
+            return False
+        data = resp.json()
+        entry = (data.get("data") or {}).get("MediaList")
+        if entry is None:
+            return False
+        entry_id = entry["id"]
+
+    # Delete the entry
+    delete_mutation = """
+    mutation ($id: Int) {
+      DeleteMediaListEntry(id: $id) {
+        deleted
+      }
+    }
+    """
+    with httpx.Client() as client:
+        resp = client.post(
+            API_URL,
+            json={"query": delete_mutation, "variables": {"id": entry_id}},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        return (result.get("data") or {}).get("DeleteMediaListEntry", {}).get("deleted", False)
+
+
 @contextmanager
 def with_valid_token(
     db,
