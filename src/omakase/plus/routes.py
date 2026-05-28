@@ -534,14 +534,31 @@ _SECRET_KEYS = {
 async def settings_page(
     request: Request, saved: str = "", user=Depends(require_user), db=Depends(get_db)
 ):
+    from omakase.llm import list_backends
+
     stored = {}
     for key_name in _SECRET_KEYS:
         val = read_secret(db, user.id, key_name)
         stored[key_name] = "••••••••" if val else ""
+
+    # Exclude the backend selector from the API key list — it's rendered separately
+    api_keys = {k: v for k, v in _SECRET_KEYS.items() if k != "llm_backend"}
+    api_stored = {k: v for k, v in stored.items() if k != "llm_backend"}
+
+    stored_backend = read_secret(db, user.id, "llm_backend") or "openai"
+    backends = sorted(list_backends().keys())
+
     return templates.TemplateResponse(
         request,
         "settings.html",
-        {"email": user.email, "keys": _SECRET_KEYS, "stored": stored, "saved": saved},
+        {
+            "email": user.email,
+            "keys": api_keys,
+            "stored": api_stored,
+            "saved": saved,
+            "backends": backends,
+            "stored_backend": stored_backend,
+        },
     )
 
 
