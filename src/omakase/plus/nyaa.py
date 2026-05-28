@@ -142,7 +142,9 @@ async def search(
         size_display = size_el.text if size_el is not None and size_el.text else ""
         size_bytes, _ = _parse_size(size_display)
         is_trusted = trusted_el is not None and trusted_el.text == "Yes"
-        pub_date = _parse_pubdate(pubdate_el.text if pubdate_el is not None and pubdate_el.text else "")
+        pub_date = _parse_pubdate(
+            pubdate_el.text if pubdate_el is not None and pubdate_el.text else ""
+        )
 
         torrents.append(
             NyaaTorrent(

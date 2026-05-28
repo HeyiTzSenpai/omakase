@@ -248,13 +248,15 @@ async def dashboard(
             picks = json.loads(r["picks"])
         except (json.JSONDecodeError, TypeError):
             picks = []
-        runs.append({
-            "id": r["id"],
-            "source": r["source"],
-            "model": r["model"],
-            "picks": picks,
-            "created_at": r["created_at"],
-        })
+        runs.append(
+            {
+                "id": r["id"],
+                "source": r["source"],
+                "model": r["model"],
+                "picks": picks,
+                "created_at": r["created_at"],
+            }
+        )
 
     # Load current-run picks (if ?run=N)
     current_run_picks: list[dict] = []
@@ -292,16 +294,18 @@ async def dashboard(
     for p in planning_rows:
         a_id = p["anilist_id"]
         planned_ids.add(a_id)
-        plannings.append({
-            "id": p["id"],
-            "anilist_id": a_id,
-            "title": p["title"],
-            "added_at": p["added_at"],
-            "planning_status": p["planning_status"],
-            "download_status": p["download_status"] or "",
-            "download_info": p["download_info"] or "",
-            "rd_torrent_id": p["rd_torrent_id"] or "",
-        })
+        plannings.append(
+            {
+                "id": p["id"],
+                "anilist_id": a_id,
+                "title": p["title"],
+                "added_at": p["added_at"],
+                "planning_status": p["planning_status"],
+                "download_status": p["download_status"] or "",
+                "download_info": p["download_info"] or "",
+                "rd_torrent_id": p["rd_torrent_id"] or "",
+            }
+        )
 
     return templates.TemplateResponse(
         request,
@@ -327,9 +331,7 @@ async def dashboard_profile(
     user=Depends(require_user),
     profile: str = Form(""),
 ):
-    existing = db.execute(
-        "SELECT id FROM taste_profiles WHERE user_id = ?", (user.id,)
-    ).fetchone()
+    existing = db.execute("SELECT id FROM taste_profiles WHERE user_id = ?", (user.id,)).fetchone()
     if existing:
         db.execute(
             "UPDATE taste_profiles SET content = ?, updated_at = datetime('now') WHERE id = ?",
@@ -361,9 +363,7 @@ async def api_run(
     use_planning = body.get("use_planning", False)
     skip_profile = body.get("skip_profile", False)
 
-    tp = db.execute(
-        "SELECT content FROM taste_profiles WHERE user_id = ?", (user.id,)
-    ).fetchone()
+    tp = db.execute("SELECT content FROM taste_profiles WHERE user_id = ?", (user.id,)).fetchone()
     taste_profile_content = tp["content"] if tp else ""
 
     api_key = read_secret(db, user.id, "llm_api_key")
@@ -376,10 +376,14 @@ async def api_run(
 
     default_model = "qwen2.5:7b" if mode == "fast" else "qwen2.5:14b"
     llm_url, llm_type_resolved, model_resolved, supports_json = resolve_model_preset(
-        "http://localhost:11434", llm_type, model if model else default_model, mode,
+        "http://localhost:11434",
+        llm_type,
+        model if model else default_model,
+        mode,
     )
 
     import tempfile
+
     profile_path = ""
     if taste_profile_content and not skip_profile:
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)
@@ -405,13 +409,17 @@ async def api_run(
         recs = run_pipeline(cfg)
     except Exception as e:
         if profile_path:
-            try: os.unlink(profile_path)
-            except OSError: pass
+            try:
+                os.unlink(profile_path)
+            except OSError:
+                pass
         return {"status": "error", "detail": str(e)}
 
     if profile_path:
-        try: os.unlink(profile_path)
-        except OSError: pass
+        try:
+            os.unlink(profile_path)
+        except OSError:
+            pass
 
     picks_json = json.dumps([asdict(r) for r in recs])
     cursor = db.execute(
@@ -444,9 +452,7 @@ async def dashboard_run(
     skip_profile: bool = Form(False),
 ):
     # Read taste profile from DB
-    tp = db.execute(
-        "SELECT content FROM taste_profiles WHERE user_id = ?", (user.id,)
-    ).fetchone()
+    tp = db.execute("SELECT content FROM taste_profiles WHERE user_id = ?", (user.id,)).fetchone()
     taste_profile_content = tp["content"] if tp else ""
 
     # Read LLM API key and preferred backend from stored secrets
@@ -630,7 +636,7 @@ async def dashboard_plan_and_download(
         )
         db.commit()
     elif result["status"] == "not_found":
-        msg += f" · No torrents found on nyaa.si for \"{title}\""
+        msg += f' · No torrents found on nyaa.si for "{title}"'
         db.execute(
             "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
             ("not_found", user.id, anilist_id),
@@ -682,7 +688,7 @@ async def dashboard_remove_plan(
         )
         db.commit()
 
-    msg = f"Removed \"{title}\" from planning list" if title else "Removed from planning list"
+    msg = f'Removed "{title}" from planning list' if title else "Removed from planning list"
     return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
 
 
@@ -725,9 +731,9 @@ async def dashboard_remove_from_rd(
             (user.id, anilist_id),
         )
         db.commit()
-        msg = f"Removed \"{title}\" from Real-Debrid"
+        msg = f'Removed "{title}" from Real-Debrid'
     else:
-        msg = f"Failed+to+remove+\"{title}\"+from+Real-Debrid"
+        msg = f'Failed+to+remove+"{title}"+from+Real-Debrid'
 
     return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
 

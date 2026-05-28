@@ -229,7 +229,7 @@ class TestSignupAndLogin:
                 "/plus/login",
                 data={"email": "spam@example.com", "password": "wrong"},
             )
-            assert resp.status_code == 200, f"Attempt {i+1} failed: {resp.status_code}"
+            assert resp.status_code == 200, f"Attempt {i + 1} failed: {resp.status_code}"
 
         resp = client.post(
             "/plus/login",

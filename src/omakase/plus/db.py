@@ -68,8 +68,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     conn.commit()
 
     applied = {
-        row["name"]
-        for row in conn.execute("SELECT name FROM _migrations ORDER BY id").fetchall()
+        row["name"] for row in conn.execute("SELECT name FROM _migrations ORDER BY id").fetchall()
     }
 
     migrations_dir = _PROJECT_ROOT / "migrations"

@@ -66,7 +66,9 @@ def test_all_tables_exist(_fresh_db):
         "overseerr_requests",
         "_migrations",  # internal tracking table
     }
-    assert tables == expected, f"Mismatch — missing: {expected - tables}, extra: {tables - expected}"
+    assert tables == expected, (
+        f"Mismatch — missing: {expected - tables}, extra: {tables - expected}"
+    )
     assert len(tables) == 8
 
 
@@ -84,9 +86,7 @@ def test_user_roundtrip(_fresh_db):
     )
     conn.commit()
 
-    row = conn.execute(
-        "SELECT * FROM users WHERE email = ?", ("alice@example.com",)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE email = ?", ("alice@example.com",)).fetchone()
     assert row is not None
     assert row["email"] == "alice@example.com"
     assert row["password_hash"] == "hashed_pw_123"
@@ -165,9 +165,7 @@ def test_run_history_roundtrip(_fresh_db):
     )
     conn.commit()
 
-    rows = conn.execute(
-        "SELECT * FROM run_history WHERE user_id = ?", (user_id,)
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM run_history WHERE user_id = ?", (user_id,)).fetchall()
     assert len(rows) == 1
     assert rows[0]["source"] == "anilist"
     assert rows[0]["model"] == "gpt-4o-mini"

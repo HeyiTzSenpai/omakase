@@ -25,8 +25,22 @@ class TestRDTorrent:
         assert t.progress == 50.0
 
     def test_statuses(self):
-        for status in ["magnet_error", "waiting_files_selection", "downloading", "downloaded", "error"]:
-            t = RDTorrent(id="x", filename="f", status=status, progress=0, bytes_total=0, bytes_done=0, links=[])
+        for status in [
+            "magnet_error",
+            "waiting_files_selection",
+            "downloading",
+            "downloaded",
+            "error",
+        ]:
+            t = RDTorrent(
+                id="x",
+                filename="f",
+                status=status,
+                progress=0,
+                bytes_total=0,
+                bytes_done=0,
+                links=[],
+            )
             assert t.status == status
 
 

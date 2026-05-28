@@ -32,13 +32,13 @@ def seed_user():
     password = os.getenv("OMAKASE_SEED_PASSWORD")
 
     if not email or not password:
-        click.echo("ERROR: OMAKASE_SEED_EMAIL and OMAKASE_SEED_PASSWORD must both be set.", err=True)
+        click.echo(
+            "ERROR: OMAKASE_SEED_EMAIL and OMAKASE_SEED_PASSWORD must both be set.", err=True
+        )
         sys.exit(1)
 
     conn = get_db()
-    existing = conn.execute(
-        "SELECT id FROM users WHERE email = ?", (email,)
-    ).fetchone()
+    existing = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
 
     if existing:
         click.echo(f"User '{email}' already exists (id={existing['id']}).")
@@ -57,9 +57,7 @@ def seed_user():
 def list_users():
     """List all registered users."""
     conn = get_db()
-    rows = conn.execute(
-        "SELECT id, email, created_at FROM users ORDER BY id"
-    ).fetchall()
+    rows = conn.execute("SELECT id, email, created_at FROM users ORDER BY id").fetchall()
 
     if not rows:
         click.echo("No users found.")
