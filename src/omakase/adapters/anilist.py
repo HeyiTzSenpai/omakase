@@ -101,7 +101,7 @@ class AniListAdapter(SourceAdapter):
           Page(perPage: 50, page: $page) {
             media(
               type: ANIME
-              sort: [POPULARITY_DESC]
+              sort: [SCORE_DESC]
               status_in: [RELEASING, FINISHED]
               id_not_in: $excludeIds
             ) {
