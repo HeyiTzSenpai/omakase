@@ -241,25 +241,11 @@
                 {% set aid = pick.anilist_id %}
                 {% if aid and aid in planned_ids %}
                     <span class="badge badge-green">Planned</span>
-                    {% set req_status = request_status_map.get(aid) %}
-                    {% if req_status %}
-                        {% if req_status == "requested" %}
-                        <span class="badge badge-yellow">Requested</span>
-                        {% elif req_status == "not_found" %}
-                        <span class="badge badge-red">Not found on Overseerr</span>
-                        {% elif req_status == "error" %}
-                        <span class="badge badge-red">Request error</span>
-                        {% elif req_status == "available" %}
-                        <span class="badge badge-green">Available</span>
-                        {% else %}
-                        <span class="badge badge-gray">{{ req_status }}</span>
-                        {% endif %}
-                    {% endif %}
                 {% elif aid %}
-                    <form method="post" action="/plus/dashboard/plan" style="display:inline">
+                    <form method="post" action="/plus/dashboard/plan-and-download" style="display:inline">
                         <input type="hidden" name="anilist_id" value="{{ aid }}">
                         <input type="hidden" name="title" value="{{ pick.title }}">
-                        <button type="submit" class="btn btn-primary btn-small">+ Plan &amp; Request</button>
+                        <button type="submit" class="btn btn-primary btn-small">+ Plan &amp; Download</button>
                     </form>
                 {% endif %}
             </div>
@@ -302,7 +288,6 @@
                 <tr>
                     <th>Title</th>
                     <th>AniList</th>
-                    <th>Overseerr</th>
                     <th>Added</th>
                 </tr>
             </thead>
@@ -319,21 +304,6 @@
                         <span class="badge badge-gray">{{ p.planning_status }}</span>
                         {% endif %}
                     </td>
-                    <td>
-                        {% if p.request_status == "requested" %}
-                        <span class="badge badge-yellow">Requested</span>
-                        {% elif p.request_status == "not_found" %}
-                        <span class="badge badge-red">Not found</span>
-                        {% elif p.request_status == "error" %}
-                        <span class="badge badge-red">Error</span>
-                        {% elif p.request_status == "available" %}
-                        <span class="badge badge-green">Available</span>
-                        {% elif p.request_status %}
-                        <span class="badge badge-gray">{{ p.request_status }}</span>
-                        {% else %}
-                        <span class="badge badge-gray">Pending</span>
-                        {% endif %}
-                    </td>
                     <td style="color:#666;font-size:0.8rem">{{ p.added_at }}</td>
                 </tr>
                 {% endfor %}
@@ -341,7 +311,7 @@
         </table>
     </div>
     {% else %}
-    <p class="empty-state">No anime planned yet. Run recommendations and use "+ Plan &amp; Request" on results.</p>
+    <p class="empty-state">No anime planned yet. Run recommendations and use "+ Plan &amp; Download" on results.</p>
     {% endif %}
 
 </div>

@@ -1,123 +1,55 @@
-"""Orchestrator tying AniList planning to Overseerr media requests."""
+"""Download automation — search nyaa.si and add to Real-Debrid.
+
+Orchestrates the pipeline:
+  Plan on AniList → Search nyaa.si for best magnet → Add to Real-Debrid
+
+Called from the ``POST /plus/api/plan-and-download`` route.
+"""
 
 from __future__ import annotations
 
-import os
-
-from omakase.plus.overseerr import OverseerrClient
+from omakase.plus.nyaa import find_best, search
+from omakase.plus.realdebrid import RealDebridClient
 from omakase.plus.secrets import read_secret
 
 
-def _find_best_match(results: list[dict], title: str) -> dict | None:
-    """Find the best matching result from an Overseerr search.
+async def search_and_download(db, user_id: int, title: str) -> dict:
+    """Search nyaa.si for an anime title and add the best torrent to Real-Debrid.
 
-    Preference order:
-    1. Only considers results with ``mediaType == "tv"``
-    2. Exact title match (case-insensitive) among TV results
-    3. Highest token overlap among TV results
-    4. Fallback: first TV result
-
-    Returns ``None`` if no TV-type results exist.
+    Returns a status dict suitable for JSON response:
+      {"status": "ok", "rd_id": "...", "magnet": "...", "torrent_title": "..."}
+      {"status": "not_found", "detail": "No torrents found on nyaa.si"}
+      {"status": "rd_error", "detail": "..."}
+      {"status": "no_rd_key", "detail": "Real-Debrid API key not configured"}
     """
-    tv_results = [r for r in results if r.get("mediaType") == "tv"]
-    if not tv_results:
-        return None
+    # 1. Read Real-Debrid API key from stored secrets
+    rd_key = read_secret(db, user_id, "realdebrid_api_key")
+    if not rd_key:
+        return {"status": "no_rd_key", "detail": "Real-Debrid API key not configured"}
 
-    title_lower = title.lower()
-    title_tokens = set(title_lower.split())
+    # 2. Search nyaa.si
+    results = await search(title, trusted_only=False)
+    if not results:
+        return {"status": "not_found", "detail": f"No torrents found for \"{title}\" on nyaa.si"}
 
-    # Exact title match
-    for r in tv_results:
-        result_title = (r.get("title") or r.get("name") or "").lower()
-        if result_title == title_lower:
-            return r
+    best = find_best(results, prefer_trusted=True, prefer_no_batch=True)
+    if best is None:
+        return {"status": "not_found", "detail": f"No seedable torrents found for \"{title}\""}
 
-    # Token overlap scoring
-    best_score = 0.0
-    best_result = tv_results[0]
-    for r in tv_results:
-        result_title = (r.get("title") or r.get("name") or "").lower()
-        result_tokens = set(result_title.split())
-        if title_tokens and result_tokens:
-            overlap = len(title_tokens & result_tokens) / len(title_tokens)
-            if overlap > best_score:
-                best_score = overlap
-                best_result = r
+    # 3. Add magnet to Real-Debrid
+    client = RealDebridClient(rd_key)
+    rd_id = await client.add_magnet(best.magnet)
+    if rd_id is None:
+        return {"status": "rd_error", "detail": "Real-Debrid rejected the magnet link"}
 
-    return best_result
+    # 4. Select all files to start download
+    await client.select_files(rd_id)
 
-
-def trigger_request_after_plan(
-    db,
-    user_id: int,
-    anilist_planning_id: int,
-    title: str,
-) -> str:
-    """Search Overseerr for *title* and submit a request if found.
-
-    The *anilist_planning_id* is the primary key from ``anilist_plannings``,
-    **not** the AniList media ID.
-
-    Returns one of: ``"requested"``, ``"not_found"``, ``"error"``.
-
-    Side-effect: inserts a row into ``overseerr_requests`` with the
-    appropriate status so the user can track it on the dashboard.
-    """
-    # Read per-user secrets, falling back to env vars
-    overseerr_url = read_secret(db, user_id, "overseerr_url") or os.getenv(
-        "OVERSEERR_URL", "http://overseerr.lab:5055"
-    )
-    overseerr_api_key = read_secret(db, user_id, "overseerr_api_key") or os.getenv(
-        "OVERSEERR_API_KEY", ""
-    )
-
-    if not overseerr_api_key:
-        db.execute(
-            """INSERT INTO overseerr_requests
-               (user_id, anilist_planning_id, status)
-               VALUES (?, ?, 'error')""",
-            (user_id, anilist_planning_id),
-        )
-        db.commit()
-        return "error"
-
-    client = OverseerrClient(overseerr_url, overseerr_api_key)
-
-    try:
-        results = client.search(title)
-        match = _find_best_match(results, title)
-
-        if match is None:
-            db.execute(
-                """INSERT INTO overseerr_requests
-                   (user_id, anilist_planning_id, status)
-                   VALUES (?, ?, 'not_found')""",
-                (user_id, anilist_planning_id),
-            )
-            db.commit()
-            return "not_found"
-
-        # Found a match — submit the request
-        media_id = match["id"]
-        media_type = match.get("mediaType", "tv")
-        request_result = client.request_media(media_id, media_type)
-        overseerr_request_id = request_result.get("id")
-
-        db.execute(
-            """INSERT INTO overseerr_requests
-               (user_id, anilist_planning_id, overseerr_request_id, status)
-               VALUES (?, ?, ?, 'requested')""",
-            (user_id, anilist_planning_id, overseerr_request_id),
-        )
-        db.commit()
-        return "requested"
-
-    except Exception:
-        db.execute(
-            """INSERT INTO overseerr_requests
-               (user_id, anilist_planning_id, status)
-               VALUES (?, ?, 'error')""",
-            (user_id, anilist_planning_id),
-        )
-        db.commit()
-        return "error"
+    return {
+        "status": "ok",
+        "rd_id": rd_id,
+        "magnet": best.magnet,
+        "torrent_title": best.title,
+        "seeders": best.seeders,
+        "size": best.size_display,
+    }

@@ -301,7 +301,7 @@ class TestRunRecommendation:
 
 class TestPlanButton:
     def test_plan_button_creates_planning_and_request(self, client):
-        """POST /plus/dashboard/plan inserts planning and overseerr rows."""
+        """POST /plus/dashboard/plan inserts planning row."""
         try:
             _signup_and_login(client)
 

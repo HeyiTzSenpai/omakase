@@ -35,7 +35,6 @@ from omakase.plus.auth import (
 from omakase.plus.auth import (
     delete_session as _delete_session,
 )
-from omakase.plus.automation import trigger_request_after_plan
 from omakase.plus.deps import get_db
 from omakase.plus.middleware import require_user
 from omakase.plus.secrets import delete_secret, read_secret, store_secret
@@ -278,33 +277,26 @@ async def dashboard(
         except (ValueError, json.JSONDecodeError, TypeError):
             pass
 
-    # Load planning queue with Overseerr status
+    # Load planning queue
     planning_rows = db.execute(
-        """SELECT ap.id, ap.anilist_id, ap.title, ap.added_at,
-                  ap.status as planning_status,
-                  orr.status as request_status
-           FROM anilist_plannings ap
-           LEFT JOIN overseerr_requests orr ON orr.anilist_planning_id = ap.id
-           WHERE ap.user_id = ?
-           ORDER BY ap.added_at DESC
+        """SELECT id, anilist_id, title, added_at, status as planning_status
+           FROM anilist_plannings
+           WHERE user_id = ?
+           ORDER BY added_at DESC
            LIMIT 50""",
         (user.id,),
     ).fetchall()
     plannings = []
     planned_ids: set[int] = set()
-    request_status_map: dict[int, str] = {}
     for p in planning_rows:
         a_id = p["anilist_id"]
         planned_ids.add(a_id)
-        if p["request_status"]:
-            request_status_map[a_id] = p["request_status"]
         plannings.append({
             "id": p["id"],
             "anilist_id": a_id,
             "title": p["title"],
             "added_at": p["added_at"],
             "planning_status": p["planning_status"],
-            "request_status": p["request_status"],
         })
 
     return templates.TemplateResponse(
@@ -320,7 +312,6 @@ async def dashboard(
             "current_run_source": current_run_source,
             "plannings": plannings,
             "planned_ids": planned_ids,
-            "request_status_map": request_status_map,
             "error": error,
         },
     )
@@ -477,15 +468,56 @@ async def dashboard_plan(
     )
     db.commit()
 
-    # Trigger Overseerr request automation
-    planning_row = db.execute(
+    return RedirectResponse(url="/plus/dashboard", status_code=302)
+
+
+@router.post("/dashboard/plan-and-download")
+async def dashboard_plan_and_download(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    anilist_id: int = Form(...),
+    title: str = Form(""),
+):
+    """Plan on AniList + search nyaa.si + add to Real-Debrid. Form-based route."""
+    msg = ""
+
+    # 1. Plan on AniList (best-effort)
+    existing = db.execute(
         "SELECT id FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
         (user.id, anilist_id),
     ).fetchone()
-    if planning_row:
-        trigger_request_after_plan(db, user.id, planning_row["id"], title)
+    if not existing:
+        client_id = os.getenv("ANILIST_CLIENT_ID", "")
+        client_secret = os.getenv("ANILIST_CLIENT_SECRET", "")
+        base_url = os.getenv("OMAKASE_PLUS_URL", "http://localhost:8765")
+        redirect_uri = f"{base_url}/plus/integrations/anilist/callback"
+        try:
+            with with_valid_token(db, user.id, client_id, client_secret, redirect_uri) as token:
+                add_to_planning(token, anilist_id, "PLANNING")
+        except (ValueError, httpx.HTTPError):
+            pass
+        db.execute(
+            "INSERT INTO anilist_plannings (user_id, anilist_id, title, status) VALUES (?, ?, ?, ?)",
+            (user.id, anilist_id, title, "PLANNING"),
+        )
+        db.commit()
+        msg = "Planned"
 
-    return RedirectResponse(url="/plus/dashboard", status_code=302)
+    # 2. Search nyaa + add to Real-Debrid
+    from omakase.plus.automation import search_and_download
+
+    result = await search_and_download(db, user.id, title)
+
+    if result["status"] == "ok":
+        msg += f" · Downloading: {result.get('torrent_title', title)} ({result.get('size', '?')}, {result.get('seeders', 0)} seeds)"
+    elif result["status"] == "no_rd_key":
+        msg += " · Set Real-Debrid API key in Settings to auto-download"
+    elif result["status"] == "not_found":
+        msg += f" · No torrents found on nyaa.si for \"{title}\""
+    elif result["status"] == "rd_error":
+        msg += f" · Real-Debrid: {result.get('detail', 'error')}"
+
+    return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
 
 
 # ── Settings (secrets management) ───────────────────────────
@@ -493,8 +525,7 @@ async def dashboard_plan(
 _SECRET_KEYS = {
     "llm_api_key": "LLM API Key — your OpenAI / Anthropic / Gemini / DeepSeek key",
     "anilist_oauth_token": "AniList OAuth token (set up in Phase 3)",
-    "overseerr_api_key": "Overseerr API key",
-    "overseerr_url": "Overseerr URL (e.g. http://overseerr.lab:5055)",
+    "realdebrid_api_key": "Real-Debrid API key (from https://real-debrid.com/apitoken)",
 }
 
 
@@ -651,89 +682,51 @@ async def plan_api(
     return {"status": "ok"}
 
 
-# ── Phase 4: Overseerr auto-request ─────────────────────────
+# ── Plan & Download (Nyaa + Real-Debrid) ─────────────────────
 
 
-@router.post("/api/auto-request")
-async def auto_request(
+@router.post("/api/plan-and-download")
+async def plan_and_download(
     request: Request,
     user=Depends(require_user),
     db=Depends(get_db),
 ):
-    """Auto-request an anime via Overseerr based on AniList planning data.
+    """Plan an anime on AniList, then search nyaa.si and add to Real-Debrid.
 
     Body: {"anilist_id": 123, "title": "Anime Title"}
     """
     body = await request.json()
-    anilist_id = body["anilist_id"]
-    title = body["title"]
+    anilist_id = body.get("anilist_id")
+    title = body.get("title", "")
 
-    # Upsert into anilist_plannings to get the planning primary key
-    row = db.execute(
+    if not anilist_id or not title:
+        return {"status": "error", "detail": "anilist_id and title are required"}
+
+    # 1. Add to AniList Planning if not already planned
+    existing = db.execute(
         "SELECT id FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
         (user.id, anilist_id),
     ).fetchone()
 
-    if row:
-        planning_id = row["id"]
+    if not existing:
+        client_id = os.getenv("ANILIST_CLIENT_ID", "")
+        client_secret = os.getenv("ANILIST_CLIENT_SECRET", "")
+        base_url = os.getenv("OMAKASE_PLUS_URL", "http://localhost:8765")
+        redirect_uri = f"{base_url}/plus/integrations/anilist/callback"
+        try:
+            with with_valid_token(db, user.id, client_id, client_secret, redirect_uri) as token:
+                add_to_planning(token, anilist_id, "PLANNING")
+        except (ValueError, httpx.HTTPError):
+            pass
+
         db.execute(
-            "UPDATE anilist_plannings SET title = ? WHERE id = ?",
-            (title, planning_id),
+            "INSERT INTO anilist_plannings (user_id, anilist_id, title, status) VALUES (?, ?, ?, ?)",
+            (user.id, anilist_id, title, "PLANNING"),
         )
-    else:
-        cursor = db.execute(
-            "INSERT INTO anilist_plannings (user_id, anilist_id, title) VALUES (?, ?, ?)",
-            (user.id, anilist_id, title),
-        )
-        planning_id = cursor.lastrowid
-    db.commit()
+        db.commit()
 
-    # Trigger Overseerr request
-    status = trigger_request_after_plan(db, user.id, planning_id, title)
+    # 2. Search nyaa.si for the best torrent
+    from omakase.plus.automation import search_and_download
 
-    if status == "requested":
-        req_row = db.execute(
-            """SELECT overseerr_request_id FROM overseerr_requests
-               WHERE user_id = ? AND anilist_planning_id = ?
-               ORDER BY id DESC LIMIT 1""",
-            (user.id, planning_id),
-        ).fetchone()
-        return {
-            "status": "requested",
-            "overseerr_request_id": req_row["overseerr_request_id"] if req_row else None,
-        }
-    elif status == "not_found":
-        return {"status": "not_found"}
-    else:
-        return {"status": "error", "detail": "Failed to submit Overseerr request"}
-
-
-@router.get("/integrations/overseerr/status")
-async def overseerr_status(
-    user=Depends(require_user),
-    db=Depends(get_db),
-):
-    """Return recent Overseerr request statuses for the logged-in user."""
-    rows = db.execute(
-        """SELECT orr.id, orr.anilist_planning_id, orr.overseerr_request_id,
-                  orr.status, orr.created_at, ap.anilist_id, ap.title
-           FROM overseerr_requests orr
-           LEFT JOIN anilist_plannings ap ON ap.id = orr.anilist_planning_id
-           WHERE orr.user_id = ?
-           ORDER BY orr.created_at DESC
-           LIMIT 50""",
-        (user.id,),
-    ).fetchall()
-
-    return [
-        {
-            "id": r["id"],
-            "anilist_planning_id": r["anilist_planning_id"],
-            "overseerr_request_id": r["overseerr_request_id"],
-            "status": r["status"],
-            "created_at": r["created_at"],
-            "anilist_id": r["anilist_id"],
-            "title": r["title"],
-        }
-        for r in rows
-    ]
+    result = await search_and_download(db, user.id, title)
+    return result
