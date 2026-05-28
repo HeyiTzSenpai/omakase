@@ -1,91 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Log in — Omakase Plus</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0f0f0f;
-      color: #e0e0e0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .card {
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
-      border-radius: 12px;
-      padding: 2.5rem;
-      width: 100%;
-      max-width: 400px;
-    }
-    h1 { font-size: 1.5rem; margin-bottom: 1.5rem; text-align: center; }
-    .field { margin-bottom: 1rem; }
-    label { display: block; font-size: 0.875rem; margin-bottom: 0.25rem; color: #a0a0a0; }
-    input {
-      width: 100%;
-      padding: 0.625rem 0.75rem;
-      border: 1px solid #333;
-      border-radius: 6px;
-      background: #141414;
-      color: #e0e0e0;
-      font-size: 0.9375rem;
-    }
-    input:focus { outline: 2px solid #6366f1; border-color: transparent; }
-    button {
-      width: 100%;
-      padding: 0.625rem;
-      background: #6366f1;
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      font-size: 0.9375rem;
-      font-weight: 600;
-      cursor: pointer;
-      margin-top: 0.5rem;
-    }
-    button:hover { background: #4f46e5; }
-    .error {
-      background: #3b1212;
-      border: 1px solid #7f1d1d;
-      color: #fca5a5;
-      padding: 0.5rem 0.75rem;
-      border-radius: 6px;
-      font-size: 0.8125rem;
-      margin-bottom: 1rem;
-    }
-    .footer { text-align: center; margin-top: 1.25rem; font-size: 0.8125rem; }
-    .footer a { color: #818cf8; text-decoration: none; }
-    .footer a:hover { text-decoration: underline; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Omakase Plus — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0A0612;--surface:#14092A;--surface-hi:#1E0F3D;--border:#2A1A4D;--purple:#7C3AED;--purple-bright:#A855F7;--purple-glow:#C084FC;--text:#F5F3FF;--text2:#C4B5E8;--text3:#8B7BB8;--red:#FCA5A5}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Inter',ui-sans-serif,system-ui,sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;min-height:100vh;display:grid;place-items:center;padding:1.5rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:2rem;width:100%;max-width:400px}
+h1{font-family:'Zen Kaku Gothic New',sans-serif;font-weight:900;font-size:1.5rem;letter-spacing:-0.02em;margin-bottom:0.25rem;background:linear-gradient(135deg,var(--purple-glow),var(--purple-bright));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sub{color:var(--text3);font-size:0.85rem;margin-bottom:1.5rem}
+.field{margin-bottom:1rem}
+.field label{display:block;font-size:0.8rem;color:var(--text2);margin-bottom:0.25rem;font-weight:500}
+.field input{width:100%;padding:0.6rem 0.75rem;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:0.9rem;font-family:inherit;transition:border-color 150ms ease}
+.field input:focus{outline:none;border-color:var(--purple);box-shadow:0 0 0 3px rgba(124,58,237,0.15)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:0.4rem;width:100%;padding:0.6rem 1.1rem;border-radius:7px;font-size:0.9rem;font-weight:600;cursor:pointer;border:none;font-family:inherit;transition:all 150ms ease;text-decoration:none;line-height:1.4}
+.btn-primary{background:var(--purple);color:#fff}
+.btn-primary:hover{background:var(--purple-bright);box-shadow:0 0 20px rgba(124,58,237,0.3)}
+.btn-secondary{background:var(--surface-hi);color:var(--text2);border:1px solid var(--border);margin-top:0.5rem}
+.btn-secondary:hover{background:var(--border);color:var(--text)}
+.error{background:rgba(252,165,165,0.08);border:1px solid rgba(252,165,165,0.2);color:var(--red);padding:0.6rem 1rem;border-radius:6px;font-size:0.82rem;margin-bottom:1rem}
+</style>
 </head>
 <body>
-  <div class="card">
-    <h1>Log in</h1>
-
-    {% if error %}
-    <div class="error">{{ error }}</div>
-    {% endif %}
-
-    <form method="post" action="/plus/login">
-      <div class="field">
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" required autocomplete="email">
-      </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required autocomplete="current-password">
-      </div>
-      <button type="submit">Log in</button>
-    </form>
-
-    <div class="footer">
-      <a href="/plus/signup">Create an account</a>
+<div class="card">
+  <h1>Omakase Plus</h1>
+  <p class="sub">Sign in to your private account</p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" action="/plus/login">
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="text" id="email" name="email" placeholder="you@example.com" autocomplete="email">
     </div>
-  </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Your password" autocomplete="current-password">
+    </div>
+    <button type="submit" class="btn btn-primary">Sign in</button>
+    <a href="/plus/signup" class="btn btn-secondary">Create account</a>
+  </form>
+</div>
 </body>
 </html>
