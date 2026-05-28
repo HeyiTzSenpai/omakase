@@ -259,12 +259,21 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 {% if plannings %}
 <div class="card" style="padding:0.5rem;overflow-x:auto">
   <table>
-    <thead><tr><th>Title</th><th>AniList</th><th>Added</th><th></th></tr></thead>
+    <thead><tr><th>Title</th><th>AniList</th><th>RD</th><th>Added</th><th></th></tr></thead>
     <tbody>
     {% for p in plannings %}
     <tr>
       <td><a href="https://anilist.co/anime/{{ p.anilist_id }}/" target="_blank" rel="noopener">{{ p.title }}</a></td>
       <td>{% if p.planning_status == 'PLANNING' %}<span class="badge badge-green">Planned</span>{% else %}<span class="badge badge-gray">{{ p.planning_status }}</span>{% endif %}</td>
+      <td>
+        {% if p.rd_torrent_id %}
+        <span class="badge badge-purple">RD</span>
+        <form method="post" action="/plus/dashboard/remove-from-rd" style="display:inline">
+          <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
+          <button type="submit" class="btn-remove" style="margin-left:0.2rem">Del</button>
+        </form>
+        {% else %}<span style="color:var(--text3);font-size:0.72rem">—</span>{% endif %}
+      </td>
       <td style="color:var(--text3);font-size:0.78rem">{{ p.added_at }}</td>
       <td>
         <form method="post" action="/plus/dashboard/remove-plan" style="display:inline">

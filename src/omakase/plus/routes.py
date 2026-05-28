@@ -279,7 +279,7 @@ async def dashboard(
 
     # Load planning queue
     planning_rows = db.execute(
-        """SELECT id, anilist_id, title, added_at, status as planning_status
+        """SELECT id, anilist_id, title, added_at, status as planning_status, rd_torrent_id
            FROM anilist_plannings
            WHERE user_id = ?
            ORDER BY added_at DESC
@@ -297,6 +297,7 @@ async def dashboard(
             "title": p["title"],
             "added_at": p["added_at"],
             "planning_status": p["planning_status"],
+            "rd_torrent_id": p["rd_torrent_id"] or "",
         })
 
     return templates.TemplateResponse(
@@ -524,7 +525,15 @@ async def dashboard_plan_and_download(
     result = await search_and_download(db, user.id, title)
 
     if result["status"] == "ok":
+        rd_id = result.get("rd_id", "")
         msg += f" · Downloading: {result.get('torrent_title', title)} ({result.get('size', '?')}, {result.get('seeders', 0)} seeds)"
+        # Store RD torrent ID so we can delete it later
+        if rd_id:
+            db.execute(
+                "UPDATE anilist_plannings SET rd_torrent_id = ? WHERE user_id = ? AND anilist_id = ?",
+                (rd_id, user.id, anilist_id),
+            )
+            db.commit()
     elif result["status"] == "no_rd_key":
         msg += " · Set Real-Debrid API key in Settings to auto-download"
     elif result["status"] == "not_found":
@@ -571,6 +580,52 @@ async def dashboard_remove_plan(
         db.commit()
 
     msg = f"Removed \"{title}\" from planning list" if title else "Removed from planning list"
+    return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
+
+
+@router.post("/dashboard/remove-from-rd")
+async def dashboard_remove_from_rd(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    anilist_id: int = Form(...),
+):
+    """Remove a torrent from Real-Debrid by its stored torrent ID."""
+    row = db.execute(
+        "SELECT title, rd_torrent_id FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
+        (user.id, anilist_id),
+    ).fetchone()
+
+    if not row or not row["rd_torrent_id"]:
+        return RedirectResponse(
+            url="/plus/dashboard?error=No+Real-Debrid+torrent+found+for+this+anime",
+            status_code=302,
+        )
+
+    title = row["title"]
+    rd_id = row["rd_torrent_id"]
+
+    from omakase.plus.realdebrid import RealDebridClient
+
+    rd_key = read_secret(db, user.id, "realdebrid_api_key")
+    if not rd_key:
+        return RedirectResponse(
+            url="/plus/dashboard?error=Real-Debrid+API+key+not+configured",
+            status_code=302,
+        )
+
+    client = RealDebridClient(rd_key)
+    ok = await client.delete_torrent(rd_id)
+
+    if ok:
+        db.execute(
+            "UPDATE anilist_plannings SET rd_torrent_id = '' WHERE user_id = ? AND anilist_id = ?",
+            (user.id, anilist_id),
+        )
+        db.commit()
+        msg = f"Removed \"{title}\" from Real-Debrid"
+    else:
+        msg = f"Failed+to+remove+\"{title}\"+from+Real-Debrid"
+
     return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
 
 

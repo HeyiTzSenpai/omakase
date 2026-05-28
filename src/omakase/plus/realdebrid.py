@@ -106,3 +106,12 @@ class RealDebridClient:
                     )
                 )
             return torrents
+
+    async def delete_torrent(self, torrent_id: str) -> bool:
+        """Delete a torrent from Real-Debrid. Returns True on success."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.delete(
+                f"{RD_API}/torrents/delete/{torrent_id}",
+                headers=self._headers(),
+            )
+            return resp.status_code in (200, 204)
