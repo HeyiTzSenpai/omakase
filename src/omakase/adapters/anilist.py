@@ -90,18 +90,46 @@ class AniListAdapter(SourceAdapter):
                 )
         return items
 
-    def _fetch_candidates(self, exclude_ids: list[int], pool_size: int) -> list[MediaItem]:
-        """Fetch candidate shows the user hasn't watched.
+    def _analyze_genre_affinity(self, history: list[MediaItem]) -> list[str]:
+        """Calculate which genres the user actually likes based on scored history.
 
-        AniList's unauthenticated Page caps at 50 per request,
-        so we paginate if pool_size > 50.
+        Returns up to 5 genres with the strongest positive affinity, sorted best-first.
         """
-        query = """
-        query ($excludeIds: [Int], $page: Int) {
+        genre_scores: dict[str, list[int]] = {}
+        for m in history:
+            if m.score is None:
+                continue
+            for g in m.genres:
+                genre_scores.setdefault(g, []).append(m.score)
+
+        if not genre_scores:
+            return []
+
+        affinity: list[tuple[str, float]] = []
+        for genre, scores in genre_scores.items():
+            if len(scores) < 2:
+                continue
+            avg = sum(scores) / len(scores)
+            loved = sum(1 for s in scores if s >= 8)
+            # Weight: average score + bonus for each loved entry
+            affinity.append((genre, avg + loved * 0.5))
+
+        affinity.sort(key=lambda x: x[1], reverse=True)
+        return [g for g, _ in affinity[:5]]
+
+    def _fetch_candidates(self, exclude_ids: list[int], pool_size: int) -> list[MediaItem]:
+        """Fetch candidates using genre-targeted search when history is available.
+
+        Falls back to global SCORE_DESC when called without history context.
+        """
+        # Base query used for both targeted and global fetches
+        base_query = """
+        query ($excludeIds: [Int], $page: Int, $genres: [String]) {
           Page(perPage: 50, page: $page) {
             media(
               type: ANIME
               sort: [SCORE_DESC]
+              genre_in: $genres
               status_in: [RELEASING, FINISHED]
               id_not_in: $excludeIds
             ) {
@@ -118,13 +146,9 @@ class AniListAdapter(SourceAdapter):
           }
         }
         """
-        items: list[MediaItem] = []
-        page = 1
-        while len(items) < pool_size:
-            data = self._graphql(query, {"excludeIds": exclude_ids, "page": page})
-            media_list = data.get("data", {}).get("Page", {}).get("media", [])
-            if not media_list:
-                break
+
+        def _parse_media(media_list: list[dict]) -> list[MediaItem]:
+            items: list[MediaItem] = []
             for m in media_list:
                 tags = [t["name"] for t in m.get("tags", []) if t.get("rank", 0) >= 80]
                 studio = None
@@ -148,8 +172,135 @@ class AniListAdapter(SourceAdapter):
                         mean_score=m.get("meanScore"),
                     )
                 )
+            return items
+
+        def _fetch_page(page: int, genres: list[str] | None = None) -> list[dict]:
+            data = self._graphql(
+                base_query,
+                {"excludeIds": exclude_ids, "page": page, "genres": genres or []},
+            )
+            return data.get("data", {}).get("Page", {}).get("media", [])
+
+        seen_ids: set[int] = set(exclude_ids)
+        all_candidates: list[MediaItem] = []
+
+        # Fetch a baseline of 100 top-scored anime (no genre filter)
+        page = 1
+        while len(all_candidates) < 100:
+            media_list = _fetch_page(page)
+            if not media_list:
+                break
+            for item in _parse_media(media_list):
+                if item.id not in seen_ids:
+                    seen_ids.add(item.id)
+                    all_candidates.append(item)
             page += 1
-        return items[:pool_size]
+
+        return all_candidates[:pool_size]
+
+    def _fetch_candidates_targeted(
+        self,
+        exclude_ids: list[int],
+        pool_size: int,
+        preferred_genres: list[str],
+    ) -> list[MediaItem]:
+        """Fetch candidates targeted by the user's preferred genres.
+
+        Fetches ~60 per preferred genre + a baseline of 60 general top-scored.
+        Deduplicates across all batches.
+        """
+        base_query = """
+        query ($excludeIds: [Int], $page: Int, $genres: [String]) {
+          Page(perPage: 50, page: $page) {
+            media(
+              type: ANIME
+              sort: [SCORE_DESC]
+              genre_in: $genres
+              status_in: [RELEASING, FINISHED]
+              id_not_in: $excludeIds
+            ) {
+              id
+              title { romaji english }
+              genres
+              tags { name rank }
+              meanScore
+              description(asHtml: false)
+              format
+              episodes
+              studios(isMain: true) { nodes { name } }
+            }
+          }
+        }
+        """
+
+        def _parse_media(media_list: list[dict]) -> list[MediaItem]:
+            items: list[MediaItem] = []
+            for m in media_list:
+                tags = [t["name"] for t in m.get("tags", []) if t.get("rank", 0) >= 80]
+                studio = None
+                studios = m.get("studios", {}).get("nodes", [])
+                if studios:
+                    studio = studios[0].get("name")
+                desc = m.get("description", "")
+                if desc and len(desc) > 200:
+                    desc = desc[:200] + "..."
+                items.append(
+                    MediaItem(
+                        id=m["id"],
+                        title_romaji=m.get("title", {}).get("romaji", ""),
+                        title_english=m.get("title", {}).get("english"),
+                        genres=m.get("genres", []),
+                        tags=tags,
+                        format=m.get("format"),
+                        episodes=m.get("episodes"),
+                        studio=studio,
+                        description=desc,
+                        mean_score=m.get("meanScore"),
+                    )
+                )
+            return items
+
+        def _fetch_page(page: int, genres: list[str]) -> list[dict]:
+            data = self._graphql(
+                base_query,
+                {"excludeIds": exclude_ids, "page": page, "genres": genres},
+            )
+            return data.get("data", {}).get("Page", {}).get("media", [])
+
+        seen_ids: set[int] = set(exclude_ids)
+        all_candidates: list[MediaItem] = []
+
+        # Fetch per preferred genre (60 each, max 2 pages)
+        per_genre = min(60, pool_size // len(preferred_genres)) if preferred_genres else 60
+        for genre in preferred_genres:
+            for page in (1, 2):
+                media_list = _fetch_page(page, [genre])
+                if not media_list:
+                    break
+                for item in _parse_media(media_list):
+                    if item.id not in seen_ids:
+                        seen_ids.add(item.id)
+                        all_candidates.append(item)
+                if len([c for c in all_candidates if genre in c.genres]) >= per_genre:
+                    break
+
+        # Top up with general top-scored (no genre filter) to reach pool_size
+        if len(all_candidates) < pool_size:
+            remaining = pool_size - len(all_candidates)
+            page = 1
+            while len(all_candidates) < pool_size:
+                media_list = _fetch_page(page, [])
+                if not media_list:
+                    break
+                for item in _parse_media(media_list):
+                    if item.id not in seen_ids:
+                        seen_ids.add(item.id)
+                        all_candidates.append(item)
+                page += 1
+                if page > (remaining // 50) + 3:
+                    break
+
+        return all_candidates[:pool_size]
 
     def _fetch_planning(self, username: str) -> list[MediaItem]:
         """Fetch the user's Planning (plan-to-watch) entries as candidates."""
@@ -214,16 +365,19 @@ class AniListAdapter(SourceAdapter):
         use_planning = kwargs.get("use_planning", False)
         if use_planning:
             candidates = self._fetch_planning(username)
-            # In planning mode the candidates ARE drawn from the user's lists,
-            # so they intentionally overlap with history. Only drop entries
-            # the user has actively watched/dropped/paused.
             watched_ids = {
                 m.id for m in history if m.status in {"CURRENT", "COMPLETED", "DROPPED", "PAUSED"}
             }
             candidates = [c for c in candidates if c.id not in watched_ids]
         else:
-            candidates = self._fetch_candidates(exclude_ids, pool_size)
-            # Safety filter for the popular-pool path: no history IDs may leak.
+            # Analyze genre affinity from scored history
+            preferred_genres = self._analyze_genre_affinity(history)
+            if preferred_genres:
+                candidates = self._fetch_candidates_targeted(
+                    exclude_ids, pool_size, preferred_genres
+                )
+            else:
+                candidates = self._fetch_candidates(exclude_ids, pool_size)
             seen = set(exclude_ids)
             candidates = [c for c in candidates if c.id not in seen]
         return SourceData(

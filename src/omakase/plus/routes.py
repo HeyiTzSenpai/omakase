@@ -397,7 +397,7 @@ async def dashboard_run(
         llm_url=llm_url,
         model=model_resolved,
         profile_path=profile_path,
-        candidate_pool_size=count,
+        candidate_pool_size=300,
         temperature=temperature,
         llm_type=llm_type_resolved,
         mode=mode,
