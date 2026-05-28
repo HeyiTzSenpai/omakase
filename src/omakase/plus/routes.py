@@ -5,8 +5,11 @@ Mounted at ``/plus`` via an ``APIRouter``.
 
 from __future__ import annotations
 
+import json
 import os
+import re
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,6 +18,7 @@ from fastapi import APIRouter, Depends, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from omakase.engine import run as run_pipeline
 from omakase.plus.anilist import (
     _pkce_state,
     add_to_planning,
@@ -35,6 +39,7 @@ from omakase.plus.automation import trigger_request_after_plan
 from omakase.plus.deps import get_db
 from omakase.plus.middleware import require_user
 from omakase.plus.secrets import delete_secret, read_secret, store_secret
+from omakase.types import OmakaseConfig, resolve_model_preset
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -202,12 +207,285 @@ async def logout(request: Request, db=Depends(get_db)):
     return response
 
 
-# ── Dashboard (placeholder) ─────────────────────────────────
+# ── Dashboard ───────────────────────────────────────────────
+
+_ANILIST_ID_RE = re.compile(r"https://anilist\.co/anime/(\d+)/")
+
+
+def _extract_anilist_id(url: str | None) -> int | None:
+    """Extract AniList media ID from a recommendation URL, if possible."""
+    if not url:
+        return None
+    m = _ANILIST_ID_RE.search(url)
+    return int(m.group(1)) if m else None
 
 
 @router.get("/dashboard")
-async def dashboard(user=Depends(require_user)):
-    return HTMLResponse("Dashboard (coming in Phase 5)")
+async def dashboard(
+    request: Request,
+    run: str = "",
+    error: str = "",
+    user=Depends(require_user),
+    db=Depends(get_db),
+):
+    # Load taste profile
+    tp = db.execute(
+        "SELECT content, updated_at FROM taste_profiles WHERE user_id = ?",
+        (user.id,),
+    ).fetchone()
+    taste_profile_content = tp["content"] if tp else ""
+    taste_profile_updated = tp["updated_at"] if tp else ""
+
+    # Load recent runs (last 10)
+    recent_rows = db.execute(
+        """SELECT id, source, model, picks, created_at
+           FROM run_history WHERE user_id = ?
+           ORDER BY id DESC LIMIT 10""",
+        (user.id,),
+    ).fetchall()
+    runs = []
+    for r in recent_rows:
+        try:
+            picks = json.loads(r["picks"])
+        except (json.JSONDecodeError, TypeError):
+            picks = []
+        runs.append({
+            "id": r["id"],
+            "source": r["source"],
+            "model": r["model"],
+            "picks": picks,
+            "created_at": r["created_at"],
+        })
+
+    # Load current-run picks (if ?run=N)
+    current_run_picks: list[dict] = []
+    current_run_id = 0
+    current_run_source = ""
+    if run:
+        try:
+            run_row = db.execute(
+                "SELECT id, source, model, picks FROM run_history WHERE id = ? AND user_id = ?",
+                (int(run), user.id),
+            ).fetchone()
+            if run_row:
+                current_run_id = run_row["id"]
+                current_run_source = run_row["source"]
+                picks_data = json.loads(run_row["picks"])
+                for p in picks_data:
+                    anilist_id = _extract_anilist_id(p.get("url"))
+                    p["anilist_id"] = anilist_id
+                current_run_picks = picks_data
+        except (ValueError, json.JSONDecodeError, TypeError):
+            pass
+
+    # Load planning queue with Overseerr status
+    planning_rows = db.execute(
+        """SELECT ap.id, ap.anilist_id, ap.title, ap.added_at,
+                  ap.status as planning_status,
+                  orr.status as request_status
+           FROM anilist_plannings ap
+           LEFT JOIN overseerr_requests orr ON orr.anilist_planning_id = ap.id
+           WHERE ap.user_id = ?
+           ORDER BY ap.added_at DESC
+           LIMIT 50""",
+        (user.id,),
+    ).fetchall()
+    plannings = []
+    planned_ids: set[int] = set()
+    request_status_map: dict[int, str] = {}
+    for p in planning_rows:
+        a_id = p["anilist_id"]
+        planned_ids.add(a_id)
+        if p["request_status"]:
+            request_status_map[a_id] = p["request_status"]
+        plannings.append({
+            "id": p["id"],
+            "anilist_id": a_id,
+            "title": p["title"],
+            "added_at": p["added_at"],
+            "planning_status": p["planning_status"],
+            "request_status": p["request_status"],
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+        {
+            "email": user.email,
+            "taste_profile": taste_profile_content,
+            "taste_profile_updated": taste_profile_updated,
+            "runs": runs,
+            "current_run_picks": current_run_picks,
+            "current_run_id": current_run_id,
+            "current_run_source": current_run_source,
+            "plannings": plannings,
+            "planned_ids": planned_ids,
+            "request_status_map": request_status_map,
+            "error": error,
+        },
+    )
+
+
+@router.post("/dashboard/profile")
+async def dashboard_profile(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    profile: str = Form(""),
+):
+    existing = db.execute(
+        "SELECT id FROM taste_profiles WHERE user_id = ?", (user.id,)
+    ).fetchone()
+    if existing:
+        db.execute(
+            "UPDATE taste_profiles SET content = ?, updated_at = datetime('now') WHERE id = ?",
+            (profile, existing["id"]),
+        )
+    else:
+        db.execute(
+            "INSERT INTO taste_profiles (user_id, content, updated_at) VALUES (?, ?, datetime('now'))",
+            (user.id, profile),
+        )
+    db.commit()
+    return RedirectResponse(url="/plus/dashboard", status_code=302)
+
+
+@router.post("/dashboard/run")
+async def dashboard_run(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    source: str = Form("anilist"),
+    mode: str = Form("fast"),
+    count: int = Form(8),
+    temperature: float = Form(0.4),
+    username: str = Form(""),
+    model: str = Form(""),
+    use_planning: bool = Form(False),
+    skip_profile: bool = Form(False),
+):
+    # Read taste profile from DB
+    tp = db.execute(
+        "SELECT content FROM taste_profiles WHERE user_id = ?", (user.id,)
+    ).fetchone()
+    taste_profile_content = tp["content"] if tp else ""
+
+    # Read LLM API key from stored secrets to determine backend
+    api_key = read_secret(db, user.id, "llm_api_key")
+
+    # Determine llm_type: prefer a remote backend if an API key exists
+    if api_key:
+        llm_type = "openai"
+    else:
+        llm_type = "ollama"
+
+    # Stage env vars for downstream clients
+    if api_key:
+        os.environ["OMAKASE_API_KEY"] = api_key
+
+    default_model = "qwen2.5:7b" if mode == "fast" else "qwen2.5:14b"
+    llm_url, llm_type_resolved, model_resolved, supports_json = resolve_model_preset(
+        "http://localhost:11434",
+        llm_type,
+        model if model else default_model,
+        mode,
+    )
+
+    # Write taste profile to a temp file so the engine can read it
+    import tempfile
+
+    profile_path = ""
+    if taste_profile_content and not skip_profile:
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)
+        tmp.write(taste_profile_content)
+        tmp.close()
+        profile_path = tmp.name
+
+    cfg = OmakaseConfig(
+        source=source,
+        username=username.strip() or user.email.split("@")[0],
+        llm_url=llm_url,
+        model=model_resolved,
+        profile_path=profile_path,
+        candidate_pool_size=count,
+        temperature=temperature,
+        llm_type=llm_type_resolved,
+        mode=mode,
+        supports_json_mode=supports_json,
+        use_planning=use_planning,
+    )
+
+    try:
+        recs = run_pipeline(cfg)
+    except Exception:
+        if profile_path:
+            try:
+                os.unlink(profile_path)
+            except OSError:
+                pass
+        return RedirectResponse(
+            url="/plus/dashboard?error=Recommendation+failed.+Check+your+API+key+and+source.",
+            status_code=302,
+        )
+
+    # Clean up temp file
+    if profile_path:
+        try:
+            os.unlink(profile_path)
+        except OSError:
+            pass
+
+    picks_json = json.dumps([asdict(r) for r in recs])
+    cursor = db.execute(
+        "INSERT INTO run_history (user_id, source, model, picks) VALUES (?, ?, ?, ?)",
+        (user.id, source, model_resolved, picks_json),
+    )
+    db.commit()
+    run_id = cursor.lastrowid
+
+    return RedirectResponse(url=f"/plus/dashboard?run={run_id}", status_code=302)
+
+
+@router.post("/dashboard/plan")
+async def dashboard_plan(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    anilist_id: int = Form(...),
+    title: str = Form(""),
+):
+    # Check if already planned locally
+    existing = db.execute(
+        "SELECT id FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
+        (user.id, anilist_id),
+    ).fetchone()
+    if existing:
+        return RedirectResponse(url="/plus/dashboard", status_code=302)
+
+    # Try to add to AniList Planning via OAuth (best-effort)
+    client_id = os.getenv("ANILIST_CLIENT_ID", "")
+    client_secret = os.getenv("ANILIST_CLIENT_SECRET", "")
+    base_url = os.getenv("OMAKASE_PLUS_URL", "http://localhost:8765")
+    redirect_uri = f"{base_url}/plus/integrations/anilist/callback"
+    try:
+        with with_valid_token(db, user.id, client_id, client_secret, redirect_uri) as token:
+            add_to_planning(token, anilist_id, "PLANNING")
+    except (ValueError, httpx.HTTPError):
+        pass
+
+    # Always insert locally
+    db.execute(
+        "INSERT INTO anilist_plannings (user_id, anilist_id, title, status) VALUES (?, ?, ?, ?)",
+        (user.id, anilist_id, title, "PLANNING"),
+    )
+    db.commit()
+
+    # Trigger Overseerr request automation
+    planning_row = db.execute(
+        "SELECT id FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
+        (user.id, anilist_id),
+    ).fetchone()
+    if planning_row:
+        trigger_request_after_plan(db, user.id, planning_row["id"], title)
+
+    return RedirectResponse(url="/plus/dashboard", status_code=302)
 
 
 # ── Settings (secrets management) ───────────────────────────
