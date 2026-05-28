@@ -158,26 +158,26 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 <!-- Run Recommendation -->
 <div class="card">
   <h2 style="margin-bottom:0.75rem">Run Recommendation</h2>
-  <form method="post" action="/plus/dashboard/run" onsubmit="document.getElementById('loading').classList.add('active')">
+  <form id="run-form" onsubmit="return runRecs(event)">
     <div class="field-row">
       <div class="field">
         <label>Source</label>
-        <select name="source">
+        <select name="source" id="run-source">
           <option value="anilist">AniList</option>
           <option value="myanimelist">MyAnimeList</option>
         </select>
       </div>
       <div class="field">
         <label>Username</label>
-        <input type="text" name="username" placeholder="AniList username">
+        <input type="text" name="username" id="run-username" placeholder="AniList username">
       </div>
       <div class="field">
         <label>Count</label>
-        <input type="number" name="count" value="8" min="3" max="15">
+        <input type="number" name="count" id="run-count" value="8" min="3" max="15">
       </div>
       <div class="field">
         <label>Mode</label>
-        <select name="mode">
+        <select name="mode" id="run-mode">
           <option value="fast">Fast</option>
           <option value="pro">Pro</option>
         </select>
@@ -186,25 +186,27 @@ tr:hover td{background:rgba(124,58,237,0.04)}
     <div class="field-row">
       <div class="field">
         <label>Temperature</label>
-        <input type="range" name="temperature" min="0.1" max="1.0" step="0.1" value="0.4" style="padding:0">
+        <input type="range" name="temperature" id="run-temp" min="0.1" max="1.0" step="0.1" value="0.4" style="padding:0">
         <div class="field-hint">0.4 — focused picks</div>
       </div>
       <div class="field">
         <label>Model override</label>
-        <input type="text" name="model" placeholder="Auto (leave blank)">
+        <input type="text" name="model" id="run-model" placeholder="Auto (leave blank)">
       </div>
     </div>
     <div class="field-row" style="margin-bottom:0.75rem">
-      <label class="checkbox-row"><input type="checkbox" name="use_planning" value="true">Use Plan to Watch</label>
-      <label class="checkbox-row"><input type="checkbox" name="skip_profile" value="true">Skip profile (broader recs)</label>
+      <label class="checkbox-row"><input type="checkbox" name="use_planning" id="run-planning" value="true">Use Plan to Watch</label>
+      <label class="checkbox-row"><input type="checkbox" name="skip_profile" id="run-skip" value="true">Skip profile (broader recs)</label>
     </div>
-    <button type="submit" class="btn btn-primary">Run Recommendation</button>
+    <button type="submit" class="btn btn-primary" id="run-btn">Run Recommendation</button>
   </form>
+  <div id="results-list"></div>
   <div class="loading" id="loading">
     <div class="spinner"></div>
-    <div class="loading-text">Asking the LLM to pair your tasting menu...</div>
-    <div class="loading-meta">This can take 10-30s. Pro mode may take longer.</div>
+    <div class="loading-text" id="loading-text">Asking the LLM to pair your tasting menu...</div>
+    <div class="loading-meta"><span id="loading-elapsed">0s</span> &middot; Pro mode with reasoning models can take 1-2 minutes</div>
   </div>
+  <div class="msg" id="run-error" style="display:none"></div>
 </div>
 
 <!-- Results -->
@@ -295,5 +297,91 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 {% endif %}
 
 </div>
+<script>
+let _loadingTimer = null;
+let _loadingStart = 0;
+
+async function runRecs(e) {
+  e.preventDefault();
+  const btn = document.getElementById('run-btn');
+  const loading = document.getElementById('loading');
+  const err = document.getElementById('run-error');
+  err.style.display = 'none';
+  btn.disabled = true;
+  loading.classList.add('active');
+  _loadingStart = Date.now();
+  _loadingTimer = setInterval(_tick, 1000);
+  _tick();
+
+  const body = JSON.stringify({
+    source: document.getElementById('run-source').value,
+    username: document.getElementById('run-username').value,
+    mode: document.getElementById('run-mode').value,
+    count: parseInt(document.getElementById('run-count').value),
+    temperature: parseFloat(document.getElementById('run-temp').value),
+    model: document.getElementById('run-model').value,
+    use_planning: document.getElementById('run-planning').checked,
+    skip_profile: document.getElementById('run-skip').checked,
+  });
+
+  try {
+    const resp = await fetch('/plus/api/run', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body,
+    });
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      document.getElementById('run-error').style.display = 'none';
+      _renderResults(data);
+      // Reload page to get fresh planning queue + recent runs
+      window.location.href = '/plus/dashboard?run=' + data.run_id;
+    } else {
+      err.textContent = 'Recommendation failed: ' + (data.detail || 'unknown error');
+      err.style.display = 'block';
+    }
+  } catch (ex) {
+    err.textContent = 'Network error: ' + ex.message;
+    err.style.display = 'block';
+  } finally {
+    clearInterval(_loadingTimer);
+    loading.classList.remove('active');
+    btn.disabled = false;
+  }
+}
+
+function _tick() {
+  const s = Math.floor((Date.now() - _loadingStart) / 1000);
+  document.getElementById('loading-elapsed').textContent = s + 's';
+  const phases = [
+    {at:0, t:'Asking the LLM to pair your tasting menu...'},
+    {at:15, t:'Still thinking. Pro mode takes longer.'},
+    {at:45, t:'Reasoning models can take 1-2 minutes...'},
+    {at:90, t:'Still working. Try Fast mode next time if this is too slow.'},
+  ];
+  let phase = phases[0];
+  for (const p of phases) if (s >= p.at) phase = p;
+  document.getElementById('loading-text').textContent = phase.t;
+}
+
+function _renderResults(data) {
+  // Quick in-place render while redirect loads
+  const container = document.getElementById('results-list');
+  if (!container) return;
+  container.innerHTML = '';
+  data.recommendations.forEach(r => {
+    const score = r.predicted_score;
+    let sc = 'score-mid';
+    if (score >= 8) sc = 'score-high';
+    else if (score < 6) sc = 'score-low';
+    container.innerHTML += '<div class="rec-card">' +
+      '<div class="top"><div class="title">' + esc(r.title) + '</div>' +
+      '<span class="score ' + sc + '">' + score + '/10</span></div>' +
+      '<div class="reasoning">' + esc(r.reasoning) + '</div>' +
+      (r.best_match_from_history ? '<div class="match">Pairs with: <strong>' + esc(r.best_match_from_history) + '</strong></div>' : '') +
+      '</div>';
+  });
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+</script>
 </body>
 </html>

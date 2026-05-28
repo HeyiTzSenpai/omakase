@@ -344,6 +344,92 @@ async def dashboard_profile(
     return RedirectResponse(url="/plus/dashboard", status_code=302)
 
 
+@router.post("/api/run")
+async def api_run(
+    request: Request,
+    db=Depends(get_db),
+    user=Depends(require_user),
+):
+    """JSON endpoint for running recommendations with live loading UX."""
+    body = await request.json()
+    source = body.get("source", "anilist")
+    username = body.get("username", "")
+    mode = body.get("mode", "fast")
+    count = body.get("count", 8)
+    temperature = body.get("temperature", 0.4)
+    model = body.get("model", "")
+    use_planning = body.get("use_planning", False)
+    skip_profile = body.get("skip_profile", False)
+
+    tp = db.execute(
+        "SELECT content FROM taste_profiles WHERE user_id = ?", (user.id,)
+    ).fetchone()
+    taste_profile_content = tp["content"] if tp else ""
+
+    api_key = read_secret(db, user.id, "llm_api_key")
+    llm_type = read_secret(db, user.id, "llm_backend") or ""
+    if not llm_type:
+        llm_type = "openai" if api_key else "ollama"
+
+    if api_key:
+        os.environ["OMAKASE_API_KEY"] = api_key
+
+    default_model = "qwen2.5:7b" if mode == "fast" else "qwen2.5:14b"
+    llm_url, llm_type_resolved, model_resolved, supports_json = resolve_model_preset(
+        "http://localhost:11434", llm_type, model if model else default_model, mode,
+    )
+
+    import tempfile
+    profile_path = ""
+    if taste_profile_content and not skip_profile:
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)
+        tmp.write(taste_profile_content)
+        tmp.close()
+        profile_path = tmp.name
+
+    cfg = OmakaseConfig(
+        source=source,
+        username=username.strip() or user.email.split("@")[0],
+        llm_url=llm_url,
+        model=model_resolved,
+        profile_path=profile_path,
+        candidate_pool_size=count,
+        temperature=temperature,
+        llm_type=llm_type_resolved,
+        mode=mode,
+        supports_json_mode=supports_json,
+        use_planning=use_planning,
+    )
+
+    try:
+        recs = run_pipeline(cfg)
+    except Exception as e:
+        if profile_path:
+            try: os.unlink(profile_path)
+            except OSError: pass
+        return {"status": "error", "detail": str(e)}
+
+    if profile_path:
+        try: os.unlink(profile_path)
+        except OSError: pass
+
+    picks_json = json.dumps([asdict(r) for r in recs])
+    cursor = db.execute(
+        "INSERT INTO run_history (user_id, source, model, picks) VALUES (?, ?, ?, ?)",
+        (user.id, source, model_resolved, picks_json),
+    )
+    db.commit()
+    run_id = cursor.lastrowid
+
+    return {
+        "status": "ok",
+        "run_id": run_id,
+        "source": source,
+        "model": model_resolved,
+        "recommendations": [asdict(r) for r in recs],
+    }
+
+
 @router.post("/dashboard/run")
 async def dashboard_run(
     db=Depends(get_db),
