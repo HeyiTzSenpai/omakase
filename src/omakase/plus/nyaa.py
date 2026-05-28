@@ -104,7 +104,16 @@ async def search(
         resp = await client.get(NYAA_RSS_URL, params=params)
         resp.raise_for_status()
 
-    root = ET.fromstring(resp.text)
+    # Nyaa RSS sometimes contains invalid XML characters (control chars,
+    # bare ampersands in titles). Clean them up before parsing.
+    text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", resp.text)
+    # Fix unescaped & that aren't part of a valid entity
+    text = re.sub(r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)", "&amp;", text)
+
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
     torrents: list[NyaaTorrent] = []
 
     for item in root.findall(".//item"):
