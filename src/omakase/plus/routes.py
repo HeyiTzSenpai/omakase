@@ -24,6 +24,7 @@ from omakase.plus.auth import (
 )
 from omakase.plus.deps import get_db
 from omakase.plus.middleware import require_user
+from omakase.plus.secrets import delete_secret, read_secret, store_secret
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -199,3 +200,48 @@ async def logout(request: Request, db=Depends(get_db)):
 @router.get("/dashboard")
 async def dashboard(user=Depends(require_user)):
     return HTMLResponse("Dashboard (coming in Phase 5)")
+
+
+# ── Settings (secrets management) ───────────────────────────
+
+_SECRET_KEYS = {
+    "llm_api_key": "LLM API Key — your OpenAI / Anthropic / Gemini / DeepSeek key",
+    "anilist_oauth_token": "AniList OAuth token (set up in Phase 3)",
+    "overseerr_api_key": "Overseerr API key",
+    "overseerr_url": "Overseerr URL (e.g. http://overseerr.lab:5055)",
+}
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, saved: str = "", user=Depends(require_user), db=Depends(get_db)):
+    stored = {}
+    for key_name in _SECRET_KEYS:
+        val = read_secret(db, user.id, key_name)
+        stored[key_name] = "••••••••" if val else ""
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {"email": user.email, "keys": _SECRET_KEYS, "stored": stored, "saved": saved},
+    )
+
+
+@router.post("/settings", response_class=HTMLResponse)
+async def settings_post(
+    request: Request,
+    db=Depends(get_db),
+    user=Depends(require_user),
+):
+    form = await request.form()
+    user_id = user.id
+    saved_keys: list[str] = []
+
+    for key_name in _SECRET_KEYS:
+        value = form.get(key_name, "").strip()
+        if value and value != "••••••••":
+            store_secret(db, user_id, key_name, value)
+            saved_keys.append(key_name)
+        elif form.get(f"delete_{key_name}", ""):
+            delete_secret(db, user_id, key_name)
+
+    msg = f"Saved: {', '.join(saved_keys)}" if saved_keys else "No changes made."
+    return RedirectResponse(url=f"/plus/settings?saved={msg}", status_code=302)
