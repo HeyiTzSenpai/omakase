@@ -252,7 +252,7 @@ class TestRunRecommendation:
             assert "Attack on Titan" in html
             assert "9.2" in html
             assert "8.7" in html
-            assert "Run #" in html
+            assert "Recent Runs" in html
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 

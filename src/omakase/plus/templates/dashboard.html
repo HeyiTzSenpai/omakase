@@ -107,11 +107,13 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 .error-banner{background:rgba(252,165,165,0.08);border:1px solid rgba(252,165,165,0.2);color:var(--red);padding:0.6rem 1rem;border-radius:6px;font-size:0.82rem;margin-bottom:1rem}
 .empty{text-align:center;padding:3rem 1rem;color:var(--text3);font-size:0.9rem}
 
-/* Loading */
-.loading{display:none;text-align:center;padding:2rem}
-.loading.active{display:block}
-.spinner{width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--purple);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 0.75rem}
+/* Loading — matches public omakase site */
+.loading{display:none;flex-direction:column;align-items:center;gap:0.75rem;padding:2.5rem 1rem}
+.loading.active{display:flex}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--purple);border-radius:50%;animation:spin 0.8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:0.9rem;color:var(--text2)}
+.loading-meta{font-size:0.72rem;color:var(--text3)}
 </style>
 </head>
 <body>
@@ -153,7 +155,7 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 <!-- Run Recommendation -->
 <div class="card">
   <h2 style="margin-bottom:0.75rem">Run Recommendation</h2>
-  <form method="post" action="/plus/dashboard/run">
+  <form method="post" action="/plus/dashboard/run" onsubmit="document.getElementById('loading').classList.add('active')">
     <div class="field-row">
       <div class="field">
         <label>Source</label>
@@ -195,6 +197,11 @@ tr:hover td{background:rgba(124,58,237,0.04)}
     </div>
     <button type="submit" class="btn btn-primary">Run Recommendation</button>
   </form>
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">Asking the LLM to pair your tasting menu...</div>
+    <div class="loading-meta">This can take 10-30s. Pro mode may take longer.</div>
+  </div>
 </div>
 
 <!-- Results -->
@@ -245,13 +252,19 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 {% if plannings %}
 <div class="card" style="padding:0.5rem;overflow-x:auto">
   <table>
-    <thead><tr><th>Title</th><th>AniList</th><th>Added</th></tr></thead>
+    <thead><tr><th>Title</th><th>AniList</th><th>Added</th><th></th></tr></thead>
     <tbody>
     {% for p in plannings %}
     <tr>
       <td><a href="https://anilist.co/anime/{{ p.anilist_id }}/" target="_blank" rel="noopener">{{ p.title }}</a></td>
       <td>{% if p.planning_status == 'PLANNING' %}<span class="badge badge-green">Planned</span>{% else %}<span class="badge badge-gray">{{ p.planning_status }}</span>{% endif %}</td>
       <td style="color:var(--text3);font-size:0.78rem">{{ p.added_at }}</td>
+      <td>
+        <form method="post" action="/plus/dashboard/unplan" style="display:inline">
+          <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
+          <button type="submit" class="btn btn-ghost" style="font-size:0.7rem;padding:0.2rem 0.5rem">Remove</button>
+        </form>
+      </td>
     </tr>
     {% endfor %}
     </tbody>

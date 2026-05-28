@@ -471,6 +471,21 @@ async def dashboard_plan(
     return RedirectResponse(url="/plus/dashboard", status_code=302)
 
 
+@router.post("/dashboard/unplan")
+async def dashboard_unplan(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    anilist_id: int = Form(...),
+):
+    """Remove an anime from the local planning list."""
+    db.execute(
+        "DELETE FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
+        (user.id, anilist_id),
+    )
+    db.commit()
+    return RedirectResponse(url="/plus/dashboard", status_code=302)
+
+
 @router.post("/dashboard/plan-and-download")
 async def dashboard_plan_and_download(
     db=Depends(get_db),

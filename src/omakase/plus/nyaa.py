@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-NYAA_RSS_URL = "https://nyaa.si/?page=rss"
+NYAA_RSS_URL = "https://nyaa.si/"
 
 # Category codes: 1_2 = Anime - English Translated
 DEFAULT_CATEGORY = "1_2"
@@ -96,6 +96,7 @@ async def search(
         List of NyaaTorrent results, sorted by seeders descending.
     """
     params = {
+        "page": "rss",
         "q": query,
         "c": category,
         "f": "2" if trusted_only else "0",  # 2 = trusted only
@@ -124,13 +125,11 @@ async def search(
         if not title:
             continue
 
-        # Extract magnet from the <nyaa:infoHash> or <link> element
-        # The RSS feed embeds magnet link in the <link> field for torrent pages,
-        # but the actual magnet is typically in a <guid> or we construct it.
+        # Construct magnet link from the <nyaa:infoHash>
         magnet = ""
-        guid_el = item.find("guid")
-        if guid_el is not None and guid_el.text:
-            magnet = guid_el.text
+        info_hash_el = item.find("nyaa:infoHash", _NS)
+        if info_hash_el is not None and info_hash_el.text:
+            magnet = f"magnet:?xt=urn:btih:{info_hash_el.text}&dn={title}"
 
         # Get nyaa-specific fields
         seeders_el = item.find("nyaa:seeders", _NS)
