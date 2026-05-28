@@ -7,7 +7,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
 # Per-path connection cache so the same database file reuses one connection.
 _db: dict[str, sqlite3.Connection] = {}
@@ -71,12 +71,11 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         row["name"] for row in conn.execute("SELECT name FROM _migrations ORDER BY id").fetchall()
     }
 
-    migrations_dir = _PROJECT_ROOT / "migrations"
-    if not migrations_dir.is_dir():
+    if not _MIGRATIONS_DIR.is_dir():
         return
 
     pending: list[tuple[int, str, Path]] = []
-    for f in sorted(migrations_dir.iterdir()):
+    for f in sorted(_MIGRATIONS_DIR.iterdir()):
         m = _MIGRATION_PATTERN.match(f.name)
         if m and f.name not in applied:
             pending.append((int(m.group(1)), f.name, f))

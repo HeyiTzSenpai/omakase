@@ -60,7 +60,12 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-omakase = ["web/templates/*.html", "web/static/*"]
+omakase = [
+    "web/templates/*.html",
+    "web/static/*",
+    "plus/templates/*.html",
+    "plus/migrations/*.sql",
+]
 
 [tool.ruff]
 line-length = 100
