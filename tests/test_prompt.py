@@ -56,6 +56,27 @@ def test_prompt_caps_recommendation_count_at_candidate_pool():
     assert "recommend 3 anime" in prompt
 
 
+def test_prompt_honors_requested_n_recs():
+    candidates = [_media(f"Cand{i}", mid=100 + i) for i in range(50)]
+    prompt = build_prompt(taste_profile="x", history=[], candidates=candidates, n_recs=8)
+    assert "recommend 8 anime" in prompt
+    assert "pick the 8 best matches" in prompt
+
+
+def test_prompt_n_recs_clamped_to_available_candidates():
+    candidates = [_media(f"Cand{i}", mid=100 + i) for i in range(4)]
+    prompt = build_prompt(taste_profile="x", history=[], candidates=candidates, n_recs=8)
+    # Asked for 8 but only 4 candidates exist — must not ask for more than it has.
+    assert "recommend 4 anime" in prompt
+
+
+def test_prompt_n_recs_never_zero():
+    prompt = build_prompt(
+        taste_profile="x", history=[], candidates=[_media("Solo", mid=7)], n_recs=8
+    )
+    assert "recommend 1 anime" in prompt
+
+
 def test_prompt_empty_profile_uses_no_profile_branch():
     """When no profile is provided, the prompt should explicitly tell the LLM
     to infer taste from scores alone and widen the search."""

@@ -397,7 +397,12 @@ async def api_run(
         llm_url=llm_url,
         model=model_resolved,
         profile_path=profile_path,
-        candidate_pool_size=count,
+        # Over-fetch: the genre-targeted pool is dominated by sequels of shows
+        # already in the user's history, which the franchise filter then drops.
+        # Fetching only `count` would leave ~1 survivor. Fetch a generous pool
+        # so enough non-franchise candidates remain for `count` picks.
+        candidate_pool_size=min(300, max(count * 12, 120)),
+        num_recommendations=count,
         temperature=temperature,
         llm_type=llm_type_resolved,
         mode=mode,
@@ -490,6 +495,7 @@ async def dashboard_run(
         model=model_resolved,
         profile_path=profile_path,
         candidate_pool_size=300,
+        num_recommendations=count,
         temperature=temperature,
         llm_type=llm_type_resolved,
         mode=mode,

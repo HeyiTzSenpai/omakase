@@ -182,7 +182,9 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
 
     # 3. Build prompt
     print(f"  [3/5] Building prompt for {cfg.model}...")
-    prompt = build_prompt(taste_profile, data.history, data.candidates)
+    prompt = build_prompt(
+        taste_profile, data.history, data.candidates, n_recs=cfg.num_recommendations
+    )
     print(f"        Prompt: ~{len(prompt.split())} tokens")
 
     # 4. Send to LLM

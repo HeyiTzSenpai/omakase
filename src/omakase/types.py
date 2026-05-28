@@ -58,6 +58,7 @@ class OmakaseConfig:
     model: str
     profile_path: str
     candidate_pool_size: int = 100
+    num_recommendations: int = 10  # how many picks to ask the LLM for
     temperature: float = 0.4
     num_ctx: int = 16384
     llm_type: str = "ollama"

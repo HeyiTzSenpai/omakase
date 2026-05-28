@@ -86,6 +86,7 @@ def build_prompt(
     taste_profile: str,
     history: list[MediaItem],
     candidates: list[MediaItem],
+    n_recs: int = 10,
 ) -> str:
     """Assemble the full LLM prompt.
 
@@ -95,7 +96,7 @@ def build_prompt(
     the LLM has only the scoring history to work from, so recommendations
     cluster around statistical patterns rather than a stated point of view.
     """
-    n_recs = min(len(candidates), 10)
+    n_recs = max(1, min(len(candidates), n_recs))
     has_profile = bool(taste_profile.strip())
 
     if has_profile:
