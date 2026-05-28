@@ -359,14 +359,11 @@ async def dashboard_run(
     ).fetchone()
     taste_profile_content = tp["content"] if tp else ""
 
-    # Read LLM API key from stored secrets to determine backend
+    # Read LLM API key and preferred backend from stored secrets
     api_key = read_secret(db, user.id, "llm_api_key")
-
-    # Determine llm_type: prefer a remote backend if an API key exists
-    if api_key:
-        llm_type = "openai"
-    else:
-        llm_type = "ollama"
+    llm_type = read_secret(db, user.id, "llm_backend") or ""
+    if not llm_type:
+        llm_type = "openai" if api_key else "ollama"
 
     # Stage env vars for downstream clients
     if api_key:
@@ -406,14 +403,17 @@ async def dashboard_run(
 
     try:
         recs = run_pipeline(cfg)
-    except Exception:
+    except Exception as e:
         if profile_path:
             try:
                 os.unlink(profile_path)
             except OSError:
                 pass
+        import urllib.parse
+
+        msg = urllib.parse.quote(f"Recommendation failed: {e}")
         return RedirectResponse(
-            url="/plus/dashboard?error=Recommendation+failed.+Check+your+API+key+and+source.",
+            url=f"/plus/dashboard?error={msg}",
             status_code=302,
         )
 
@@ -524,6 +524,7 @@ async def dashboard_plan_and_download(
 
 _SECRET_KEYS = {
     "llm_api_key": "LLM API Key — your OpenAI / Anthropic / Gemini / DeepSeek key",
+    "llm_backend": "LLM Backend — openai, anthropic, gemini, deepseek, openrouter, groq, together",
     "anilist_oauth_token": "AniList OAuth token (set up in Phase 3)",
     "realdebrid_api_key": "Real-Debrid API key (from https://real-debrid.com/apitoken)",
 }
