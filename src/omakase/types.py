@@ -21,6 +21,9 @@ class MediaItem:
     studio: str | None = None
     description: str | None = None  # only for candidates
     mean_score: float | None = None  # global average score
+    related_ids: list[int] = field(default_factory=list)
+    # IDs of franchise relations (prequels/sequels/parents/side stories/etc.)
+    # populated only for candidates; used to exclude same-franchise picks.
 
 
 @dataclass

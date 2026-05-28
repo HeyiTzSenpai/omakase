@@ -7,6 +7,7 @@ AniList blocks Python's default User-Agent, so we set a custom one.
 from __future__ import annotations
 
 import json
+import re
 from urllib.request import Request, urlopen
 
 from omakase.adapters.base import SourceAdapter, register
@@ -14,6 +15,92 @@ from omakase.types import MediaItem, SourceData
 
 API_URL = "https://graphql.anilist.co"
 USER_AGENT = "Omakase/0.1 (homelab; +https://github.com/HeyiTzSenpai/omakase)"
+
+# AniList relation types that mean "same franchise". Used to drop candidates
+# whose relations point at anything in the user's history.
+FRANCHISE_RELATION_TYPES = frozenset(
+    {
+        "PREQUEL",
+        "SEQUEL",
+        "PARENT",
+        "SIDE_STORY",
+        "SUMMARY",
+        "ALTERNATIVE",
+        "SPIN_OFF",
+        "COMPILATION",
+        "CONTAINS",
+    }
+)
+
+_PAREN_TAIL = re.compile(r"\s*\([^)]*\)\s*$")
+_SUBTITLE_SEPARATORS = (": ", " - ", " – ", " — ")
+_SEASON_TAIL = re.compile(
+    r"\s+(?:season\s+\d+|s\d+|part\s+\d+|\d+(?:st|nd|rd|th)\s+season|"
+    r"the\s+(?:movie|final|animation)|movie|film|ova|special|specials|"
+    r"i{2,}|iv|vi+|ix|x|\d+)$",
+    re.IGNORECASE,
+)
+
+
+def _title_stem(title: str | None) -> str:
+    """Normalize an anime title to its franchise stem for prefix matching.
+
+    Used as a belt to AniList's relations graph: if AniList's metadata is
+    incomplete, two titles sharing a normalized stem (e.g. "gintama" from
+    both "Gintama Season 2" and "Gintama: THE VERY FINAL") get treated as
+    the same franchise.
+    """
+    if not title:
+        return ""
+    s = title.strip().lower()
+    s = _PAREN_TAIL.sub("", s).strip()
+    # Split at the EARLIEST subtitle separator, not the first one in tuple
+    # order — a title like "Chainsaw Man – The Movie: Reze Arc" has both
+    # " – " and ": " and we want the dash, not the colon.
+    earliest = min(
+        (i for i in (s.find(sep) for sep in _SUBTITLE_SEPARATORS) if i != -1),
+        default=-1,
+    )
+    if earliest != -1:
+        s = s[:earliest]
+    # Strip iteratively in case multiple markers stack (e.g. "X Season 2 Part 2").
+    while True:
+        new = _SEASON_TAIL.sub("", s).strip()
+        if new == s:
+            break
+        s = new
+    return s
+
+
+def _build_franchise_block(history: list[MediaItem]) -> tuple[set[int], set[str]]:
+    """Build the franchise exclusion set from history.
+
+    Returns (history_ids, history_stems). A candidate is "in-franchise" iff
+    its id, any of its related_ids, or its title stem hits one of these sets.
+    """
+    ids = {m.id for m in history if m.id}
+    stems = set()
+    for m in history:
+        for t in (m.title_english, m.title_romaji):
+            stem = _title_stem(t)
+            if stem:
+                stems.add(stem)
+    return ids, stems
+
+
+def _candidate_is_in_franchise(
+    candidate: MediaItem, history_ids: set[int], history_stems: set[str]
+) -> bool:
+    """Return True if this candidate belongs to the same franchise as any history entry."""
+    if candidate.id in history_ids:
+        return True
+    if any(rid in history_ids for rid in candidate.related_ids):
+        return True
+    for t in (candidate.title_english, candidate.title_romaji):
+        stem = _title_stem(t)
+        if stem and stem in history_stems:
+            return True
+    return False
 
 
 @register("anilist")
@@ -142,6 +229,7 @@ class AniListAdapter(SourceAdapter):
               format
               episodes
               studios(isMain: true) { nodes { name } }
+              relations { edges { relationType node { id type } } }
             }
           }
         }
@@ -158,6 +246,16 @@ class AniListAdapter(SourceAdapter):
                 desc = m.get("description", "")
                 if desc and len(desc) > 200:
                     desc = desc[:200] + "..."
+                related_ids: list[int] = []
+                for edge in m.get("relations", {}).get("edges", []) or []:
+                    rtype = edge.get("relationType")
+                    node = edge.get("node") or {}
+                    if (
+                        rtype in FRANCHISE_RELATION_TYPES
+                        and node.get("type") == "ANIME"
+                        and node.get("id")
+                    ):
+                        related_ids.append(node["id"])
                 items.append(
                     MediaItem(
                         id=m["id"],
@@ -170,6 +268,7 @@ class AniListAdapter(SourceAdapter):
                         studio=studio,
                         description=desc,
                         mean_score=m.get("meanScore"),
+                        related_ids=related_ids,
                     )
                 )
             return items
@@ -228,6 +327,7 @@ class AniListAdapter(SourceAdapter):
               format
               episodes
               studios(isMain: true) { nodes { name } }
+              relations { edges { relationType node { id type } } }
             }
           }
         }
@@ -244,6 +344,16 @@ class AniListAdapter(SourceAdapter):
                 desc = m.get("description", "")
                 if desc and len(desc) > 200:
                     desc = desc[:200] + "..."
+                related_ids: list[int] = []
+                for edge in m.get("relations", {}).get("edges", []) or []:
+                    rtype = edge.get("relationType")
+                    node = edge.get("node") or {}
+                    if (
+                        rtype in FRANCHISE_RELATION_TYPES
+                        and node.get("type") == "ANIME"
+                        and node.get("id")
+                    ):
+                        related_ids.append(node["id"])
                 items.append(
                     MediaItem(
                         id=m["id"],
@@ -256,6 +366,7 @@ class AniListAdapter(SourceAdapter):
                         studio=studio,
                         description=desc,
                         mean_score=m.get("meanScore"),
+                        related_ids=related_ids,
                     )
                 )
             return items
@@ -378,8 +489,20 @@ class AniListAdapter(SourceAdapter):
                 )
             else:
                 candidates = self._fetch_candidates(exclude_ids, pool_size)
-            seen = set(exclude_ids)
-            candidates = [c for c in candidates if c.id not in seen]
+            # Drop anything that's in the same franchise as a history entry:
+            # (a) AniList id_not_in only catches exact id matches — sequels and
+            # spin-offs have different ids and slip through;
+            # (b) we expanded the GraphQL to fetch each candidate's franchise
+            # relations, so a sequel of a dropped show points back at the
+            # dropped id and we exclude it;
+            # (c) belt-and-suspenders: title-stem dedup catches franchises
+            # AniList's relations metadata doesn't connect.
+            history_ids, history_stems = _build_franchise_block(history)
+            candidates = [
+                c
+                for c in candidates
+                if not _candidate_is_in_franchise(c, history_ids, history_stems)
+            ]
         return SourceData(
             username=username,
             history=history,
