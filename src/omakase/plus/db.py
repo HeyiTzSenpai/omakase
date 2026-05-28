@@ -1,0 +1,80 @@
+"""SQLite connection manager and migration runner for omakase Plus."""
+
+from __future__ import annotations
+
+import os
+import re
+import sqlite3
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+# Per-path connection cache so the same database file reuses one connection.
+_db: dict[str, sqlite3.Connection] = {}
+
+_MIGRATIONS_TABLE = (
+    "CREATE TABLE IF NOT EXISTS _migrations ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "name TEXT NOT NULL UNIQUE, "
+    "applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+    ")"
+)
+
+_MIGRATION_PATTERN = re.compile(r"^(\d+)-.+\.sql$")
+
+
+def get_db(data_dir: str = "data") -> sqlite3.Connection:
+    """Return a SQLite connection to ``data_dir/omakase-plus.db``.
+
+    Creates the directory if it does not exist, sets the row factory to
+    ``sqlite3.Row``, enables foreign-key enforcement, and runs any pending
+    migrations.  The connection is cached so subsequent calls with the same
+    path reuse it.
+    """
+    db_path = os.path.join(data_dir, "omakase-plus.db")
+    abs_path = str(Path(db_path).resolve())
+
+    if abs_path in _db:
+        return _db[abs_path]
+
+    Path(data_dir).mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    run_migrations(conn)
+    _db[abs_path] = conn
+    return conn
+
+
+def run_migrations(conn: sqlite3.Connection) -> None:
+    """Apply any SQL migration files that have not yet been applied.
+
+    Migration files live under ``migrations/`` in the project root and
+    follow the naming convention ``NN-slug.sql`` where ``NN`` is a
+    zero-padded integer prefix that determines apply order.  Already-applied
+    migrations are tracked in a ``_migrations`` table.
+    """
+    conn.execute(_MIGRATIONS_TABLE)
+    conn.commit()
+
+    applied = {
+        row["name"]
+        for row in conn.execute("SELECT name FROM _migrations ORDER BY id").fetchall()
+    }
+
+    migrations_dir = _PROJECT_ROOT / "migrations"
+    if not migrations_dir.is_dir():
+        return
+
+    pending: list[tuple[int, str, Path]] = []
+    for f in sorted(migrations_dir.iterdir()):
+        m = _MIGRATION_PATTERN.match(f.name)
+        if m and f.name not in applied:
+            pending.append((int(m.group(1)), f.name, f))
+
+    pending.sort(key=lambda x: x[0])
+    for _, name, path in pending:
+        sql = path.read_text(encoding="utf-8")
+        conn.executescript(sql)
+        conn.execute("INSERT INTO _migrations (name) VALUES (?)", (name,))
+        conn.commit()

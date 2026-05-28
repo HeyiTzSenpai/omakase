@@ -54,6 +54,12 @@ app = FastAPI(title="Omakase", version=__version__)
 
 app.mount("/static", StaticFiles(directory=str(_HERE / "static")), name="static")
 
+# Conditionally mount Plus routes in private mode (workstation-only).
+if os.getenv("OMAKASE_PLUS_PRIVATE", "false").lower() == "true":
+    from omakase.plus.routes import router as plus_router  # noqa: E402
+
+    app.include_router(plus_router)
+
 
 # ── Request / response models ─────────────────────────────
 
