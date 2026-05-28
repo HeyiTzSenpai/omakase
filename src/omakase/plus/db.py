@@ -23,13 +23,27 @@ _MIGRATIONS_TABLE = (
 _MIGRATION_PATTERN = re.compile(r"^(\d+)-.+\.sql$")
 
 
-def get_db(data_dir: str = "data") -> sqlite3.Connection:
-    """Return a SQLite connection to ``data_dir/omakase-plus.db``.
+def _connect(data_dir: str = "data") -> sqlite3.Connection:
+    """Create a new SQLite connection (per-request safe for FastAPI/uvicorn).
 
-    Creates the directory if it does not exist, sets the row factory to
-    ``sqlite3.Row``, enables foreign-key enforcement, and runs any pending
-    migrations.  The connection is cached so subsequent calls with the same
-    path reuse it.
+    Each call returns a fresh connection. Migrations are run on first connect;
+    subsequent connects skip already-applied migrations.
+    """
+    db_path = os.path.join(data_dir, "omakase-plus.db")
+    Path(data_dir).mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
+    run_migrations(conn)
+    return conn
+
+
+def get_db(data_dir: str = "data") -> sqlite3.Connection:
+    """Return a cached SQLite connection (for CLI / admin / tests use only).
+
+    Not safe for multi-threaded FastAPI workers — use ``_connect()`` +
+    per-request close in ``deps.py`` for web routes.
     """
     db_path = os.path.join(data_dir, "omakase-plus.db")
     abs_path = str(Path(db_path).resolve())
@@ -37,11 +51,7 @@ def get_db(data_dir: str = "data") -> sqlite3.Connection:
     if abs_path in _db:
         return _db[abs_path]
 
-    Path(data_dir).mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    run_migrations(conn)
+    conn = _connect(data_dir)
     _db[abs_path] = conn
     return conn
 

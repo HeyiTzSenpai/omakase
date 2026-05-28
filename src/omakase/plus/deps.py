@@ -1,18 +1,25 @@
 """FastAPI dependency helpers for Omakase Plus.
 
-Provides a ``get_db`` dependency that wraps ``omakase.plus.db.get_db()``
-in a zero-parameter callable so FastAPI does not attempt to inject
-``data_dir`` from the request.
+Provides a ``get_db`` dependency that yields a per-request SQLite connection.
+Each request gets its own connection to avoid SQLite threading issues with
+uvicorn's worker threads.
 """
 
 from __future__ import annotations
 
-from omakase.plus.db import get_db as _get_db_impl
+import sqlite3
+
+from omakase.plus.db import _connect
 
 
-def get_db():
-    """FastAPI dependency that provides a database connection.
+def get_db() -> sqlite3.Connection:
+    """FastAPI dependency — yields a per-request database connection.
 
-    Wraps ``omakase.plus.db.get_db()`` with the default ``data_dir``.
+    Creates a fresh connection (WAL mode, foreign keys on, migrations checked),
+    yields it, and closes it when the request completes.
     """
-    return _get_db_impl()
+    conn = _connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
