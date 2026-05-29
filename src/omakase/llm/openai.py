@@ -26,6 +26,9 @@ _API_KEY_ENV_VARS = (
     "TOGETHER_API_KEY",
 )
 
+_DEFAULT_MAX_TOKENS = 8192
+_DEEPSEEK_REASONING_MAX_TOKENS = 32768
+
 
 def _discover_api_key() -> str:
     for var in _API_KEY_ENV_VARS:
@@ -41,6 +44,16 @@ class OpenAILLM(BaseLLM):
     def __init__(self, url: str, model: str, api_key: str | None = None):
         super().__init__(url, model, api_key or _discover_api_key())
 
+    def _max_tokens(self) -> int:
+        url = self.url.rstrip("/").lower()
+        model = self.model.lower()
+        if url == "https://api.deepseek.com" and model in {
+            "deepseek-reasoner",
+            "deepseek-v4-pro",
+        }:
+            return _DEEPSEEK_REASONING_MAX_TOKENS
+        return _DEFAULT_MAX_TOKENS
+
     def generate(
         self,
         prompt: str,
@@ -52,12 +65,11 @@ class OpenAILLM(BaseLLM):
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            # 8192 is the safe ceiling for the most constrained provider this
-            # client serves (DeepSeek-chat). The previous 4096 cap in JSON mode
-            # truncated chatty-reasoning recommendations mid-string, which then
-            # poisoned the whole response — JSON mode is *more* sensitive to
-            # truncation than plain text, not less.
-            "max_tokens": 8192,
+            # 8192 is the safe ceiling for most providers this generic client
+            # serves. Official DeepSeek thinking models are the exception:
+            # their max_tokens includes the hidden reasoning budget, so an 8k
+            # cap can leave the final answer empty after reasoning.
+            "max_tokens": self._max_tokens(),
         }
         if supports_json:
             payload["response_format"] = {"type": "json_object"}

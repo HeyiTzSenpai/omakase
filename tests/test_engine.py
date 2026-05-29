@@ -56,6 +56,11 @@ def test_raises_on_truncated_json():
         _parse_recommendations(truncated)
 
 
+def test_raises_clear_error_on_empty_llm_content():
+    with pytest.raises(LLMOutputParseError, match="empty final answer"):
+        _parse_recommendations("")
+
+
 def test_handles_missing_fields_gracefully():
     raw = '{"recommendations": [{"title": "Made in Abyss"}]}'
     recs = _parse_recommendations(raw)

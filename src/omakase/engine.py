@@ -38,6 +38,13 @@ def _parse_recommendations(raw: str) -> list[Recommendation]:
     signal for the web layer, not a replacement for log diagnostics.
     """
     cleaned = raw.strip()
+    if not cleaned:
+        print("[!] LLM returned empty final content", file=sys.stderr)
+        raise LLMOutputParseError(
+            "LLM returned an empty final answer. With reasoning models this usually "
+            "means the model spent the output budget on reasoning_content and never "
+            "reached the JSON answer; try again, use Fast mode, or use a smaller Count."
+        )
 
     # Strip markdown code fences if present
     if cleaned.startswith("```"):
