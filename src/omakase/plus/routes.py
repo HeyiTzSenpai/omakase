@@ -8,6 +8,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
+import threading
+import uuid
 from collections import defaultdict
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -50,6 +53,45 @@ router = APIRouter(prefix="/plus")
 _login_attempts: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT = 5
 _RATE_WINDOW = 60  # seconds
+
+# ── Background recommendation jobs ──────────────────────────
+# A run can take 1-2 minutes (Pro mode / reasoning models). Calling the
+# synchronous run_pipeline inline both exceeds the reverse-proxy read timeout
+# (504s) and blocks uvicorn's single event loop for the whole run. So
+# POST /api/run starts the run in a daemon thread and returns a job_id at once;
+# the client polls /api/run/status/{job_id}. The container runs a single
+# uvicorn worker, so an in-memory registry needs no cross-process coordination.
+# The worker is pure compute — the run_history write happens later in the
+# status endpoint's request-scoped connection, never across threads.
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
+
+
+def _set_job(job_id: str, **fields: object) -> None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is not None:
+            job.update(fields)
+
+
+def _run_job(job_id: str, cfg: OmakaseConfig, profile_path: str) -> None:
+    """Run the pipeline off the event loop; publish recs or error to the registry.
+
+    Writes the payload before flipping ``status`` to its terminal value so a
+    reader that sees a terminal status always sees a complete result.
+    """
+    try:
+        recs = run_pipeline(cfg)
+    except Exception as e:
+        _set_job(job_id, detail=str(e), status="error")
+    else:
+        _set_job(job_id, recs=recs, status="completed")
+    finally:
+        if profile_path:
+            try:
+                os.unlink(profile_path)
+            except OSError:
+                pass
 
 
 def _signup_allowed() -> bool:
@@ -355,7 +397,14 @@ async def api_run(
     db=Depends(get_db),
     user=Depends(require_user),
 ):
-    """JSON endpoint for running recommendations with live loading UX."""
+    """Start a recommendation run in the background and return a job id.
+
+    The run executes in a daemon thread so this request returns in
+    milliseconds; the client polls ``/plus/api/run/status/{job_id}``. This
+    decouples the multi-minute LLM run from any single request's lifetime —
+    which previously tripped the reverse-proxy read timeout — and keeps the
+    event loop free to serve health checks and polls.
+    """
     body = await request.json()
     source = body.get("source", "anilist")
     username = body.get("username", "")
@@ -385,8 +434,6 @@ async def api_run(
         mode,
     )
 
-    import tempfile
-
     profile_path = ""
     if taste_profile_content and not skip_profile:
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False)
@@ -414,35 +461,68 @@ async def api_run(
         use_planning=use_planning,
     )
 
-    try:
-        recs = run_pipeline(cfg)
-    except Exception as e:
-        if profile_path:
-            try:
-                os.unlink(profile_path)
-            except OSError:
-                pass
-        return {"status": "error", "detail": str(e)}
+    job_id = uuid.uuid4().hex
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "status": "running",
+            "user_id": user.id,
+            "source": source,
+            "model": model_resolved,
+            "recs": None,
+            "detail": "",
+            "run_id": None,
+        }
+    threading.Thread(target=_run_job, args=(job_id, cfg, profile_path), daemon=True).start()
 
-    if profile_path:
-        try:
-            os.unlink(profile_path)
-        except OSError:
-            pass
+    return {"status": "running", "job_id": job_id}
+
+
+@router.get("/api/run/status/{job_id}")
+async def api_run_status(
+    job_id: str,
+    db=Depends(get_db),
+    user=Depends(require_user),
+):
+    """Poll a background recommendation job.
+
+    Returns ``running`` while in flight. On first completion, persists the run
+    to ``run_history`` via this request's connection and returns ``ok`` with the
+    run id + recommendations. Failed or unknown/expired jobs return ``error``.
+    The persist runs on the event loop with no ``await`` between the status read
+    and the write, so concurrent polls cannot double-insert under one worker.
+    """
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None or job["user_id"] != user.id:
+            return {"status": "error", "detail": "Unknown or expired job."}
+        status = job["status"]
+        if status == "running":
+            return {"status": "running"}
+        if status == "error":
+            detail = job["detail"]
+            _jobs.pop(job_id, None)
+            return {"status": "error", "detail": detail}
+        # status == "completed": persist once, then report ok.
+        recs = job["recs"]
+        source = job["source"]
+        model = job["model"]
 
     picks_json = json.dumps([asdict(r) for r in recs])
     cursor = db.execute(
         "INSERT INTO run_history (user_id, source, model, picks) VALUES (?, ?, ?, ?)",
-        (user.id, source, model_resolved, picks_json),
+        (user.id, source, model, picks_json),
     )
     db.commit()
     run_id = cursor.lastrowid
+
+    with _jobs_lock:
+        _jobs.pop(job_id, None)
 
     return {
         "status": "ok",
         "run_id": run_id,
         "source": source,
-        "model": model_resolved,
+        "model": model,
         "recommendations": [asdict(r) for r in recs],
     }
 

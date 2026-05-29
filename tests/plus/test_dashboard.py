@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import tempfile
+import time
 from unittest.mock import patch
 
 import pytest
@@ -60,6 +61,23 @@ def _signup_and_login(client: TestClient) -> None:
     assert resp.status_code == 302
     assert resp.headers["location"] == "/plus/dashboard"
     assert "omakase_session" in resp.cookies
+
+
+def _drain_job(client: TestClient, resp, timeout: float = 5.0) -> None:
+    """Wait for an async ``/plus/api/run`` job to leave the 'running' state.
+
+    ``/plus/api/run`` now runs the pipeline in a background thread, so callers
+    that patch ``run_pipeline`` must drain the job *inside* the patch context —
+    otherwise the patch is torn down before the worker invokes it.
+    """
+    job_id = resp.json()["job_id"]
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = client.get(f"/plus/api/run/status/{job_id}")
+        if status.status_code == 200 and status.json().get("status") != "running":
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"job {job_id} did not finish within {timeout}s")
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +353,7 @@ class TestDefaultAniListUsername:
                     "/plus/api/run",
                     json={"source": "anilist", "mode": "fast", "count": 8, "username": ""},
                 )
+                _drain_job(client, resp)
             assert resp.status_code == 200
             assert captured["username"] == "HeyiTzSenpai"
         finally:
@@ -353,10 +372,16 @@ class TestDefaultAniListUsername:
             client.post("/plus/settings", data={"anilist_username": "HeyiTzSenpai"})
 
             with patch("omakase.plus.routes.run_pipeline", side_effect=_capture):
-                client.post(
+                resp = client.post(
                     "/plus/api/run",
-                    json={"source": "anilist", "mode": "fast", "count": 8, "username": "someoneelse"},
+                    json={
+                        "source": "anilist",
+                        "mode": "fast",
+                        "count": 8,
+                        "username": "someoneelse",
+                    },
                 )
+                _drain_job(client, resp)
             assert captured["username"] == "someoneelse"
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)

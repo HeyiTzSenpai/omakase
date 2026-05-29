@@ -324,28 +324,63 @@ async function runRecs(e) {
     skip_profile: document.getElementById('run-skip').checked,
   });
 
+  const fail = (msg) => {
+    clearInterval(_loadingTimer);
+    loading.classList.remove('active');
+    btn.disabled = false;
+    err.textContent = msg;
+    err.style.display = 'block';
+  };
+
+  // Start the run. The server hands back a job_id immediately and does the
+  // multi-minute work in the background, so this request — and every poll
+  // below — is short. That's what keeps us under the reverse-proxy read
+  // timeout (a single long request used to come back as a 504 HTML page,
+  // which broke JSON parsing with "Unexpected token '<'").
+  let job;
   try {
     const resp = await fetch('/plus/api/run', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body,
     });
-    const data = await resp.json();
-    if (data.status === 'ok') {
-      document.getElementById('run-error').style.display = 'none';
-      _renderResults(data);
-      // Reload page to get fresh planning queue + recent runs
-      window.location.href = '/plus/dashboard?run=' + data.run_id;
-    } else {
-      err.textContent = 'Recommendation failed: ' + (data.detail || 'unknown error');
-      err.style.display = 'block';
-    }
+    job = await resp.json();
   } catch (ex) {
-    err.textContent = 'Network error: ' + ex.message;
-    err.style.display = 'block';
-  } finally {
-    clearInterval(_loadingTimer);
-    loading.classList.remove('active');
-    btn.disabled = false;
+    fail('Network error starting run: ' + ex.message);
+    return;
   }
+  if (!job || job.status !== 'running' || !job.job_id) {
+    fail('Could not start run: ' + ((job && job.detail) || 'unexpected response'));
+    return;
+  }
+
+  // Poll until the job leaves the 'running' state.
+  const deadline = Date.now() + 10 * 60 * 1000; // 10-minute ceiling
+  const poll = async () => {
+    if (Date.now() > deadline) {
+      fail('Run is taking unusually long. Refresh the page to check for results.');
+      return;
+    }
+    let data;
+    try {
+      const r = await fetch('/plus/api/run/status/' + encodeURIComponent(job.job_id));
+      data = await r.json();
+    } catch (ex) {
+      // Transient blip — the run continues server-side. Keep polling.
+      setTimeout(poll, 3000);
+      return;
+    }
+    if (data.status === 'running') {
+      setTimeout(poll, 3000);
+      return;
+    }
+    if (data.status === 'ok') {
+      _renderResults(data);
+      // Reload to get the persisted run + fresh planning queue + recent runs.
+      window.location.href = '/plus/dashboard?run=' + data.run_id;
+      return;
+    }
+    fail('Recommendation failed: ' + (data.detail || 'unknown error'));
+  };
+  poll();
 }
 
 function _tick() {
