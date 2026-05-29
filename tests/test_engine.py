@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from omakase.engine import _parse_recommendations, _resolve_rec_urls
+import pytest
+
+from omakase.engine import LLMOutputParseError, _parse_recommendations, _resolve_rec_urls
 from omakase.types import MediaItem, Recommendation
 
 SAMPLE_JSON = """
@@ -33,9 +35,25 @@ def test_strips_leading_and_trailing_prose():
     assert len(recs) == 2
 
 
-def test_returns_empty_on_invalid_json():
-    recs = _parse_recommendations("not json at all")
-    assert recs == []
+def test_raises_on_invalid_json():
+    """An unparseable response surfaces as an explicit error.
+
+    Previously this returned `[]` silently, so a max-tokens truncation in
+    the LLM call landed as a "0 picks" run in the dashboard with no
+    indication of what failed. Now the caller sees a clear error.
+    """
+    with pytest.raises(LLMOutputParseError):
+        _parse_recommendations("not json at all")
+
+
+def test_raises_on_truncated_json():
+    """Mid-string truncation (the real-world max-tokens case) raises."""
+    truncated = (
+        '{"recommendations": [{"title": "Vinland Saga", "predicted_score": 9, '
+        '"reasoning": "Morally complex protagonist who'  # cut mid-string
+    )
+    with pytest.raises(LLMOutputParseError):
+        _parse_recommendations(truncated)
 
 
 def test_handles_missing_fields_gracefully():

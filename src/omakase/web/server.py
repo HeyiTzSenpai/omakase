@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from omakase import __version__
 from omakase.adapters.base import list_sources
 from omakase.adapters.myanimelist import MALExportError
-from omakase.engine import EmptyHistoryError
+from omakase.engine import EmptyHistoryError, LLMOutputParseError
 from omakase.engine import run as run_pipeline
 from omakase.llm import list_backends
 from omakase.types import DEFAULT_URLS, MODEL_PRESETS, OmakaseConfig, resolve_model_preset
@@ -207,6 +207,8 @@ async def recommend(req: RecommendRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except EmptyHistoryError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except LLMOutputParseError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     except httpx.ConnectError:
         raise HTTPException(
             status_code=502,

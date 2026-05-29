@@ -20,8 +20,23 @@ class EmptyHistoryError(Exception):
     """
 
 
+class LLMOutputParseError(Exception):
+    """The LLM's response couldn't be parsed into recommendations.
+
+    Almost always a max-tokens truncation that cut the JSON mid-string;
+    less often, a valid-JSON-but-wrong-shape response. Either way the
+    caller surfaces an explicit error so the user sees what happened
+    instead of a silent zero-pick run landing in the dashboard.
+    """
+
+
 def _parse_recommendations(raw: str) -> list[Recommendation]:
-    """Parse LLM JSON output into Recommendation objects. Graceful on failure."""
+    """Parse LLM JSON output into Recommendation objects.
+
+    Raises ``LLMOutputParseError`` on a malformed response. Stderr lines
+    stay for CLI users and `docker logs` — the exception is additional
+    signal for the web layer, not a replacement for log diagnostics.
+    """
     cleaned = raw.strip()
 
     # Strip markdown code fences if present
@@ -57,7 +72,11 @@ def _parse_recommendations(raw: str) -> list[Recommendation]:
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         print(f"[!] Failed to parse LLM output: {e}", file=sys.stderr)
         print(f"Raw output: {raw[:500]}", file=sys.stderr)
-        return []
+        raise LLMOutputParseError(
+            f"LLM output couldn't be parsed ({e}). Most often this means the "
+            "response was truncated by a max-tokens cap — try a smaller Count "
+            "or a less verbose model."
+        ) from e
 
 
 def _resolve_rec_urls(

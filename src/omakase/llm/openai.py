@@ -52,7 +52,12 @@ class OpenAILLM(BaseLLM):
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": 4096 if supports_json else 8192,
+            # 8192 is the safe ceiling for the most constrained provider this
+            # client serves (DeepSeek-chat). The previous 4096 cap in JSON mode
+            # truncated chatty-reasoning recommendations mid-string, which then
+            # poisoned the whole response — JSON mode is *more* sensitive to
+            # truncation than plain text, not less.
+            "max_tokens": 8192,
         }
         if supports_json:
             payload["response_format"] = {"type": "json_object"}

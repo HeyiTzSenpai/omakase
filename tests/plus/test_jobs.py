@@ -235,3 +235,36 @@ class TestJobLifecycle:
             assert resp.json()["status"] == "error"
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_job_reports_llm_parse_error(self, client):
+        """A truncated/malformed LLM response surfaces as a clean error.
+
+        Regression guard: this used to come through as ``status="ok"`` with
+        an empty ``recommendations`` list — a "0 picks" run landed silently
+        in the dashboard with no indication of what failed.
+        """
+        from omakase.engine import LLMOutputParseError
+
+        try:
+            _signup_and_login(client)
+            with patch(
+                "omakase.plus.routes.run_pipeline",
+                side_effect=LLMOutputParseError(
+                    "LLM output couldn't be parsed (truncated mid-string)."
+                ),
+            ):
+                resp = client.post(
+                    "/plus/api/run",
+                    json={"source": "anilist", "mode": "pro", "count": 8, "skip_profile": True},
+                )
+                job_id = resp.json()["job_id"]
+                result = _wait_for_job(client, job_id)
+
+            assert result["status"] == "error"
+            assert "truncated" in result["detail"].lower()
+
+            # No silent 0-pick row was written.
+            html = client.get("/plus/dashboard").text
+            assert "Vinland Saga" not in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
