@@ -49,15 +49,21 @@ Open `http://192.168.50.141:8766/plus/login` from any device on your LAN.
 
 ```bash
 cd /opt/stacks/omakase-plus
-docker compose -f compose-plus.yaml down
-git -C /tmp/omakase-plus-src pull origin plus-mvp
+
+if [ ! -d /tmp/omakase-plus-src/.git ]; then
+  rm -rf /tmp/omakase-plus-src
+  git clone --depth 1 -b plus-mvp https://github.com/HeyiTzSenpai/omakase.git /tmp/omakase-plus-src
+else
+  git -C /tmp/omakase-plus-src pull --ff-only origin plus-mvp
+fi
+
 cp /tmp/omakase-plus-src/compose-plus.yaml .
 docker compose -f compose-plus.yaml up -d --build
 ```
 
 ## Notes
 
-- Port 8766 is NOT exposed through NPM — LAN-only
+- Port 8766 is LAN-only. On the homelab it is also available through the LAN-only NPM host `anime.jhinx.dev`.
 - `OMAKASE_PLUS_PRIVATE=true` gates all Plus routes
 - Data persists in `/opt/stacks/omakase-plus/data/`
 - The public demo at omakase.jhinx.dev (port 8765) is unaffected
