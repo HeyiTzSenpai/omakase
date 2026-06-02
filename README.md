@@ -3,6 +3,12 @@
 > **お任せ** — *"I'll leave it to the chef."*
 > An LLM-powered sommelier for anime. Bring your own list, bring your own model, get a tasting menu.
 
+Current private `plus-mvp` work adds the Omakase Plus planning queue: persistent
+dashboard settings, background Pro runs, DeepSeek token headroom, AniList
+plan/remove flows, franchise-aware candidate filtering, Real-Debrid tracking
+and torrent deletion, local DB migrations, and packaging/deploy hardening. The
+public demo and PyPI-style CLI remain the stable BYOK recommendation surface.
+
 ### **[Try the live demo →](https://omakase.jhinx.dev)**  ·  [jhinx.dev](https://jhinx.dev)
 
 [![CI](https://github.com/HeyiTzSenpai/omakase/actions/workflows/ci.yml/badge.svg)](https://github.com/HeyiTzSenpai/omakase/actions/workflows/ci.yml)
