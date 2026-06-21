@@ -120,6 +120,9 @@ def test_resolve_urls_candidate_match_overrides_prefilled_bad_ids():
         best_match_from_history="",
         anilist_id=999,
         media_id=999,
+        airing_status="BAD_STATUS",
+        franchise_note="bad note",
+        sequence_warning="bad warning",
     )
     candidate = MediaItem(
         id=123,
@@ -194,6 +197,9 @@ def test_resolve_rec_urls_clears_unverified_ids_on_search_fallback():
         best_match_from_history="",
         anilist_id=999,
         media_id=999,
+        airing_status="BAD_STATUS",
+        franchise_note="bad note",
+        sequence_warning="bad warning",
     )
 
     _resolve_rec_urls([rec], candidates, "anilist")
@@ -201,6 +207,9 @@ def test_resolve_rec_urls_clears_unverified_ids_on_search_fallback():
     assert rec.url == "https://anilist.co/search/anime?search=Some+Obscure+Title"
     assert rec.anilist_id is None
     assert rec.media_id is None
+    assert rec.airing_status is None
+    assert rec.franchise_note is None
+    assert rec.sequence_warning is None
 
 
 def test_resolve_urls_match_is_case_insensitive_and_uses_romaji_too():

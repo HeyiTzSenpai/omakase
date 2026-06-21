@@ -136,12 +136,15 @@ def _resolve_rec_urls(
         if match:
             r.media_id = match.id
             r.anilist_id = match.id if source_name == "anilist" else None
-            r.airing_status = r.airing_status or match.status
-            r.franchise_note = r.franchise_note or match.franchise_note or None
-            r.sequence_warning = r.sequence_warning or match.sequence_warning or None
+            r.airing_status = match.status
+            r.franchise_note = match.franchise_note or None
+            r.sequence_warning = match.sequence_warning or None
         else:
             r.media_id = None
             r.anilist_id = None
+            r.airing_status = None
+            r.franchise_note = None
+            r.sequence_warning = None
         link = permalink(match) if match else None
         r.url = link or search_url(r.title)
 
