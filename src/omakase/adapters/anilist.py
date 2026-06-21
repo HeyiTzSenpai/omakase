@@ -371,13 +371,10 @@ class AniListAdapter(SourceAdapter):
             media_list = _fetch_page(page)
             if not media_list:
                 break
-            count_before_page = len(all_candidates)
             for item in _parse_media(media_list):
                 if item.id not in seen_ids:
                     seen_ids.add(item.id)
                     all_candidates.append(item)
-            if len(all_candidates) == count_before_page:
-                break
             page += 1
 
         return all_candidates[:pool_size]
@@ -491,13 +488,10 @@ class AniListAdapter(SourceAdapter):
                 media_list = _fetch_page(page, [genre])
                 if not media_list:
                     break
-                count_before_page = len(all_candidates)
                 for item in _parse_media(media_list):
                     if item.id not in seen_ids:
                         seen_ids.add(item.id)
                         all_candidates.append(item)
-                if len(all_candidates) == count_before_page:
-                    break
                 if len([c for c in all_candidates if genre in c.genres]) >= per_genre:
                     break
 
@@ -509,13 +503,10 @@ class AniListAdapter(SourceAdapter):
                 media_list = _fetch_page(page, None)
                 if not media_list:
                     break
-                count_before_page = len(all_candidates)
                 for item in _parse_media(media_list):
                     if item.id not in seen_ids:
                         seen_ids.add(item.id)
                         all_candidates.append(item)
-                if len(all_candidates) == count_before_page:
-                    break
                 page += 1
                 if page > (remaining // 50) + 3:
                     break

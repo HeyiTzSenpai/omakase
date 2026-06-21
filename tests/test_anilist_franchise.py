@@ -100,6 +100,22 @@ def test_candidate_blocked_via_english_title_stem():
 # ── AniList metadata parsing ────────────────────────────────────────────
 
 
+def _candidate_payload(media_id: int, title: str, genres: list[str] | None = None) -> dict:
+    return {
+        "id": media_id,
+        "title": {"romaji": title, "english": title},
+        "genres": genres or ["Drama"],
+        "tags": [],
+        "meanScore": 81,
+        "description": "desc",
+        "format": "TV",
+        "status": "FINISHED",
+        "episodes": 12,
+        "studios": {"nodes": []},
+        "relations": {"edges": []},
+    }
+
+
 def test_anilist_candidates_parse_rich_relation_metadata(monkeypatch):
     adapter = AniListAdapter()
 
@@ -107,47 +123,44 @@ def test_anilist_candidates_parse_rich_relation_metadata(monkeypatch):
         assert "seasonYear" in query
         assert "nextAiringEpisode" in query
         assert "relations" in query
-        return {
-            "data": {
-                "Page": {
-                    "media": [
-                        {
-                            "id": 2,
-                            "title": {"romaji": "Base 2", "english": "Base 2"},
-                            "genres": ["Drama"],
-                            "tags": [],
-                            "meanScore": 81,
-                            "description": "desc",
-                            "format": "TV",
-                            "status": "RELEASING",
-                            "season": "SPRING",
-                            "seasonYear": 2026,
-                            "startDate": {"year": 2026, "month": 4, "day": 1},
-                            "episodes": 12,
-                            "nextAiringEpisode": {"episode": 4, "airingAt": 1776200000},
-                            "studios": {"nodes": []},
-                            "relations": {
-                                "edges": [
-                                    {
-                                        "relationType": "PREQUEL",
-                                        "node": {
-                                            "id": 1,
-                                            "type": "ANIME",
-                                            "format": "TV",
-                                            "status": "FINISHED",
-                                            "episodes": 12,
-                                            "season": "WINTER",
-                                            "seasonYear": 2025,
-                                            "title": {"romaji": "Base", "english": "Base"},
-                                        },
-                                    }
-                                ]
-                            },
-                        }
-                    ]
+        media = []
+        if variables["page"] == 1:
+            media = [
+                {
+                    "id": 2,
+                    "title": {"romaji": "Base 2", "english": "Base 2"},
+                    "genres": ["Drama"],
+                    "tags": [],
+                    "meanScore": 81,
+                    "description": "desc",
+                    "format": "TV",
+                    "status": "RELEASING",
+                    "season": "SPRING",
+                    "seasonYear": 2026,
+                    "startDate": {"year": 2026, "month": 4, "day": 1},
+                    "episodes": 12,
+                    "nextAiringEpisode": {"episode": 4, "airingAt": 1776200000},
+                    "studios": {"nodes": []},
+                    "relations": {
+                        "edges": [
+                            {
+                                "relationType": "PREQUEL",
+                                "node": {
+                                    "id": 1,
+                                    "type": "ANIME",
+                                    "format": "TV",
+                                    "status": "FINISHED",
+                                    "episodes": 12,
+                                    "season": "WINTER",
+                                    "seasonYear": 2025,
+                                    "title": {"romaji": "Base", "english": "Base"},
+                                },
+                            }
+                        ]
+                    },
                 }
-            }
-        }
+            ]
+        return {"data": {"Page": {"media": media}}}
 
     monkeypatch.setattr(adapter, "_graphql", fake_graphql)
     item = adapter._fetch_candidates([], 1)[0]
@@ -193,6 +206,55 @@ def test_anilist_global_candidate_fetch_omits_empty_genre_filter(monkeypatch):
     item = adapter._fetch_candidates([], 1)[0]
     assert item.id == 2
     assert seen_genres[0] is None
+
+
+def test_anilist_global_candidates_continue_after_excluded_page(monkeypatch):
+    adapter = AniListAdapter()
+    seen_pages = []
+
+    def fake_graphql(query, variables):
+        seen_pages.append(variables["page"])
+        media_by_page = {
+            1: [_candidate_payload(1, "Already Watched")],
+            2: [_candidate_payload(2, "Fresh Pick")],
+        }
+        return {"data": {"Page": {"media": media_by_page.get(variables["page"], [])}}}
+
+    monkeypatch.setattr(adapter, "_graphql", fake_graphql)
+
+    items = adapter._fetch_candidates([1], 1)
+
+    assert [item.id for item in items] == [2]
+    assert seen_pages[:2] == [1, 2]
+
+
+def test_anilist_targeted_candidates_continue_after_duplicate_pages(monkeypatch):
+    adapter = AniListAdapter()
+    seen_calls = []
+
+    def fake_graphql(query, variables):
+        page = variables["page"]
+        genres = variables["genres"]
+        seen_calls.append((page, tuple(genres) if genres else None))
+        if genres == ["Drama"] and page == 1:
+            media = [_candidate_payload(1, "Already Watched", ["Drama"])]
+        elif genres == ["Drama"] and page == 2:
+            media = [_candidate_payload(2, "Fresh Drama", ["Drama"])]
+        elif genres is None and page == 1:
+            media = [_candidate_payload(1, "Already Watched", ["Action"])]
+        elif genres is None and page == 2:
+            media = [_candidate_payload(3, "Fresh Top Up", ["Action"])]
+        else:
+            media = []
+        return {"data": {"Page": {"media": media}}}
+
+    monkeypatch.setattr(adapter, "_graphql", fake_graphql)
+
+    items = adapter._fetch_candidates_targeted([1], 3, ["Drama"])
+
+    assert [item.id for item in items] == [2, 3]
+    assert (2, ("Drama",)) in seen_calls
+    assert (2, None) in seen_calls
 
 
 # ── fetch() integration ─────────────────────────────────────────────────
