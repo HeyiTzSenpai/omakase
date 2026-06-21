@@ -159,6 +159,38 @@ class TestFindBest:
         assert best is not None
         assert best.seeders == 200
 
+    def test_rank_best_returns_all_viable_candidates_in_best_first_order(self):
+        from omakase.plus import nyaa
+
+        low_res_trusted = self._make_torrent(
+            "[Trusted] Show - 01 [480p]",
+            500,
+            trusted=True,
+            size_bytes=220_000_000,
+            size_display="209.8 MiB",
+        )
+        high_quality = self._make_torrent(
+            "[GoodGroup] Show - 01 [1080p][WEB-DL]",
+            40,
+            trusted=False,
+            size_bytes=1_400_000_000,
+            size_display="1.3 GiB",
+        )
+        cam = self._make_torrent("[FastSeeder] Show 1080p HDCAM", 300)
+
+        assert hasattr(nyaa, "rank_best")
+        ranked = nyaa.rank_best([low_res_trusted, cam, high_quality], expected_title="Show")
+
+        assert ranked == [high_quality, low_res_trusted]
+
+    def test_find_best_delegates_to_ranked_candidates(self):
+        from omakase.plus import nyaa
+
+        t1 = self._make_torrent("Show 01", 50, trusted=True, batch=False)
+        t2 = self._make_torrent("Show 01", 200, trusted=True, batch=False)
+
+        assert find_best([t1, t2]) is nyaa.rank_best([t1, t2])[0]
+
     def test_min_seeders_filters(self):
         t1 = self._make_torrent("Show 01", 0, trusted=False, batch=False)
         best = find_best([t1], min_seeders=1)

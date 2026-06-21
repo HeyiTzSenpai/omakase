@@ -444,15 +444,15 @@ async def search(
     return torrents
 
 
-def find_best(
+def rank_best(
     torrents: list[NyaaTorrent],
     *,
     expected_title: str | None = None,
     prefer_trusted: bool = True,
     prefer_no_batch: bool = False,
     min_seeders: int = 1,
-) -> NyaaTorrent | None:
-    """Pick the best torrent from search results.
+) -> list[NyaaTorrent]:
+    """Return viable torrents sorted from best to worst.
 
     Heuristic:
     - Reject CAM/sample-style releases outright.
@@ -461,10 +461,10 @@ def find_best(
     - Prefer trusted/known high-quality uploaders, adequate seeders, and sane file sizes.
     - Prefer complete batches by default because Plus downloads title-level recommendations.
 
-    Returns ``None`` if no torrent meets the minimum seeders threshold.
+    Returns an empty list if no torrent meets the minimum seeders threshold.
     """
     if not torrents:
-        return None
+        return []
 
     candidates = [
         t
@@ -474,7 +474,7 @@ def find_best(
         and _title_match_score(t.title, expected_title) >= 0.6
     ]
     if not candidates:
-        return None
+        return []
 
     def _key(t: NyaaTorrent) -> tuple[int, int, int, str]:
         quality = _quality_score(
@@ -490,4 +490,23 @@ def find_best(
         )
 
     candidates.sort(key=_key)
-    return candidates[0]
+    return candidates
+
+
+def find_best(
+    torrents: list[NyaaTorrent],
+    *,
+    expected_title: str | None = None,
+    prefer_trusted: bool = True,
+    prefer_no_batch: bool = False,
+    min_seeders: int = 1,
+) -> NyaaTorrent | None:
+    """Pick the best torrent from search results."""
+    candidates = rank_best(
+        torrents,
+        expected_title=expected_title,
+        prefer_trusted=prefer_trusted,
+        prefer_no_batch=prefer_no_batch,
+        min_seeders=min_seeders,
+    )
+    return candidates[0] if candidates else None

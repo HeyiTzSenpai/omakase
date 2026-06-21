@@ -8,9 +8,11 @@ Called from the ``POST /plus/api/plan-and-download`` route.
 
 from __future__ import annotations
 
-from omakase.plus.nyaa import find_best, search
+from omakase.plus.nyaa import rank_best, search
 from omakase.plus.realdebrid import RealDebridClient
 from omakase.plus.secrets import read_secret
+
+MAX_RD_CANDIDATES = 5
 
 
 async def search_and_download(db, user_id: int, title: str) -> dict:
@@ -32,36 +34,53 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
     if not results:
         return {"status": "not_found", "detail": f'No torrents found for "{title}" on nyaa.si'}
 
-    best = find_best(results, expected_title=title)
-    if best is None:
+    candidates = rank_best(results, expected_title=title)
+    if not candidates:
         return {"status": "not_found", "detail": f'No seedable torrents found for "{title}"'}
 
-    # 3. Add magnet to Real-Debrid
+    # 3. Add magnets to Real-Debrid, falling back when a specific hash is rejected.
     client = RealDebridClient(rd_key)
-    rd_id = await client.add_magnet(best.magnet)
-    if rd_id is None:
-        return {"status": "rd_error", "detail": "Real-Debrid rejected the magnet link"}
+    last_failed_rd_id: str | None = None
+    last_failure_detail: str | None = None
+    attempted = 0
 
-    # 4. Select all files to start download
-    files_selected = await client.select_files(rd_id)
-    if not files_selected:
-        delete_torrent = getattr(client, "delete_torrent", None)
-        if delete_torrent is not None:
-            try:
-                await delete_torrent(rd_id)
-            except Exception:
-                pass
+    for candidate in candidates[:MAX_RD_CANDIDATES]:
+        attempted += 1
+        rd_id = await client.add_magnet(candidate.magnet)
+        if rd_id is None:
+            continue
+
+        # 4. Select all files to start download
+        files_selected = await client.select_files(rd_id)
+        if not files_selected:
+            last_failed_rd_id = rd_id
+            last_failure_detail = "Real-Debrid failed to select files for download"
+            delete_torrent = getattr(client, "delete_torrent", None)
+            if delete_torrent is not None:
+                try:
+                    await delete_torrent(rd_id)
+                except Exception:
+                    pass
+            continue
+
         return {
-            "status": "rd_error",
-            "detail": "Real-Debrid failed to select files for download",
+            "status": "ok",
             "rd_id": rd_id,
+            "magnet": candidate.magnet,
+            "torrent_title": candidate.title,
+            "seeders": candidate.seeders,
+            "size": candidate.size_display,
         }
 
-    return {
-        "status": "ok",
-        "rd_id": rd_id,
-        "magnet": best.magnet,
-        "torrent_title": best.title,
-        "seeders": best.seeders,
-        "size": best.size_display,
+    response = {
+        "status": "rd_error",
+        "detail": (
+            f'Real-Debrid rejected or failed all candidate torrents tried for "{title}" '
+            f"({attempted} of {len(candidates)} ranked candidates attempted)"
+        ),
     }
+    if last_failure_detail is not None:
+        response["detail"] = f"{response['detail']}; last failure: {last_failure_detail}"
+    if last_failed_rd_id is not None:
+        response["rd_id"] = last_failed_rd_id
+    return response
