@@ -1026,7 +1026,16 @@ async def feedback_api(
 
     feedback_type = body.get("feedback_type", "")
     title = body.get("title", "")
-    source = body.get("source", "anilist")
+    source = body.get("source")
+
+    if not isinstance(feedback_type, str):
+        return {"status": "error", "detail": "feedback_type must be a string"}
+    if not isinstance(title, str):
+        return {"status": "error", "detail": "title must be a string"}
+    if source is None:
+        source = "anilist"
+    elif not isinstance(source, str):
+        return {"status": "error", "detail": "source must be a string"}
     if not title:
         return {"status": "error", "detail": "title is required"}
 
@@ -1035,6 +1044,14 @@ async def feedback_api(
         run_id = _coerce_optional_int(body.get("run_id"), "run_id")
     except ValueError as e:
         return {"status": "error", "detail": str(e)}
+
+    if run_id is not None:
+        run_row = db.execute(
+            "SELECT id FROM run_history WHERE id = ? AND user_id = ?",
+            (run_id, user.id),
+        ).fetchone()
+        if run_row is None:
+            return {"status": "error", "detail": "run_id is invalid"}
 
     try:
         save_feedback(db, user.id, source, media_id, title, feedback_type, run_id)

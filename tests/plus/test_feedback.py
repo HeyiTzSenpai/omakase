@@ -258,6 +258,57 @@ def test_feedback_api_coerces_integer_string_ids(client):
         os.environ.pop("OMAKASE_PLUS_INVITE", None)
 
 
+def test_feedback_api_rejects_foreign_run_id(client):
+    try:
+        _signup_and_login(client)
+        user_id = _current_user_id(client)
+        with _connect_client_db(client) as conn:
+            other_user_id = create_user(conn, "bob@example.com")
+            foreign_run_id = create_run(conn, other_user_id, 8)
+            conn.commit()
+
+        response = client.post(
+            "/plus/api/feedback",
+            json={
+                "source": "anilist",
+                "media_id": 123,
+                "title": "Base 2",
+                "feedback_type": "interested",
+                "run_id": foreign_run_id,
+            },
+        )
+
+        assert response.json() == {"status": "error", "detail": "run_id is invalid"}
+        with _connect_client_db(client) as conn:
+            rows = conn.execute(
+                "SELECT id FROM recommendation_feedback WHERE user_id = ?",
+                (user_id,),
+            ).fetchall()
+        assert rows == []
+    finally:
+        os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+
+def test_feedback_api_rejects_nonexistent_run_id(client):
+    try:
+        _signup_and_login(client)
+
+        response = client.post(
+            "/plus/api/feedback",
+            json={
+                "source": "anilist",
+                "media_id": 123,
+                "title": "Base 2",
+                "feedback_type": "interested",
+                "run_id": 999,
+            },
+        )
+
+        assert response.json() == {"status": "error", "detail": "run_id is invalid"}
+    finally:
+        os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+
 def test_feedback_api_accepts_blank_optional_ids(client):
     try:
         _signup_and_login(client)
@@ -280,6 +331,36 @@ def test_feedback_api_accepts_blank_optional_ids(client):
             ).fetchone()
         assert row["media_id"] is None
         assert row["run_id"] is None
+    finally:
+        os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("title", ["Base 2"]),
+        ("source", ["anilist"]),
+        ("feedback_type", ["interested"]),
+    ],
+)
+def test_feedback_api_rejects_non_string_fields(client, field, value):
+    try:
+        _signup_and_login(client)
+        payload = {
+            "source": "anilist",
+            "media_id": 123,
+            "title": "Base 2",
+            "feedback_type": "interested",
+            "run_id": None,
+        }
+        payload[field] = value
+
+        response = client.post("/plus/api/feedback", json=payload)
+
+        assert response.json() == {
+            "status": "error",
+            "detail": f"{field} must be a string",
+        }
     finally:
         os.environ.pop("OMAKASE_PLUS_INVITE", None)
 
