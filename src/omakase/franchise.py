@@ -150,9 +150,15 @@ def _lane_sort_key(item: MediaItem, lane: str) -> tuple:
         return (3,)
     if item.sequence_warning:
         return (2,)
+    boosted = item.franchise_policy == "boosted"
+    status = (item.status or "").upper()
+    year = item.season_year or 0
+    score = item.mean_score or 0
+    if lane == "new_seasons":
+        return (not boosted, status != "RELEASING", -year, -score)
     if lane == "hidden_gems":
-        return (1 if item.franchise_policy == "boosted" else 0,)
-    return (0 if item.franchise_policy == "boosted" else 1,)
+        return (boosted, -score, year)
+    return (0 if boosted else 1,)
 
 
 def apply_lane_policy(

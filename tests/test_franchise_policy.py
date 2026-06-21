@@ -80,6 +80,57 @@ def test_new_seasons_orders_boosted_recent_before_unrelated_finished():
     assert result[0].id == 2
 
 
+def test_new_seasons_orders_releasing_recent_neutral_before_finished_old():
+    boosted = cand(2, "Base 2", status="FINISHED", season_year=2010)
+    finished_old = MediaItem(
+        id=3,
+        title_romaji="Finished Old",
+        title_english="Finished Old",
+        status="FINISHED",
+        season_year=2012,
+        mean_score=95,
+    )
+    releasing_recent = MediaItem(
+        id=4,
+        title_romaji="Releasing Recent",
+        title_english="Releasing Recent",
+        status="RELEASING",
+        season_year=2026,
+        mean_score=70,
+    )
+
+    result = apply_lane_policy(
+        [hist(1, "Base", score=9)],
+        [finished_old, releasing_recent, boosted],
+        "new_seasons",
+    )
+
+    assert [item.id for item in result] == [2, 4, 3]
+
+
+def test_hidden_gems_orders_neutral_candidates_by_score_then_older_year():
+    newer_lower_score = MediaItem(
+        id=2,
+        title_romaji="Newer Lower Score",
+        title_english="Newer Lower Score",
+        status="FINISHED",
+        season_year=2026,
+        mean_score=70,
+    )
+    older_higher_score = MediaItem(
+        id=3,
+        title_romaji="Older Higher Score",
+        title_english="Older Higher Score",
+        status="FINISHED",
+        season_year=2014,
+        mean_score=91,
+    )
+
+    result = apply_lane_policy([], [newer_lower_score, older_higher_score], "hidden_gems")
+
+    assert [item.id for item in result] == [3, 2]
+
+
 def test_discover_boosts_loose_franchise_entries_and_penalizes_missing_context():
     side_story = cand(2, "Base Side Story", relation_type="SIDE_STORY", related_id=1)
     neutral = MediaItem(
@@ -154,7 +205,7 @@ def test_plan_list_keeps_neutral_before_finished_but_missing_prerequisite():
     assert "Base" in result[1].sequence_warning
 
 
-def test_neutral_candidates_preserve_source_order():
+def test_best_match_neutral_candidates_preserve_source_order():
     releasing = MediaItem(
         id=2,
         title_romaji="First Source Candidate",
