@@ -51,6 +51,13 @@ h2{font-family:'Zen Kaku Gothic New',ui-sans-serif,system-ui,sans-serif;font-wei
 .field-hint{font-size:0.72rem;color:var(--text3);margin-top:0.25rem}
 .checkbox-row{display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text2)}
 .checkbox-row input[type=checkbox]{width:auto}
+.lane-control{display:flex;flex-wrap:wrap;gap:0.45rem;margin-bottom:0.75rem}
+.lane-option{position:relative;display:inline-flex;align-items:center;cursor:pointer}
+.lane-option input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.lane-option span{display:inline-flex;align-items:center;min-height:2.15rem;padding:0.42rem 0.72rem;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text2);font-size:0.78rem;font-weight:600;line-height:1.25;transition:all var(--dur-hover,150ms) ease}
+.lane-option input:checked + span{background:rgba(124,58,237,0.18);border-color:var(--purple);color:var(--text)}
+.lane-option input:focus-visible + span{outline:2px solid var(--purple-glow);outline-offset:2px}
+.lane-option:hover span{border-color:var(--border-hi);color:var(--text)}
 
 /* Buttons */
 .btn{
@@ -86,7 +93,15 @@ h2{font-family:'Zen Kaku Gothic New',ui-sans-serif,system-ui,sans-serif;font-wei
 .score-low{background:rgba(252,165,165,0.12);color:var(--red)}
 .rec-card .reasoning{font-size:0.82rem;color:var(--text2);margin-bottom:0.5rem;line-height:1.5}
 .rec-card .match{font-size:0.75rem;color:var(--text3)}
-.rec-actions{margin-top:0.5rem;display:flex;gap:0.4rem;align-items:center}
+.title-link{text-decoration:none}
+.title-link:hover{color:var(--purple-glow)}
+.rec-chips{display:flex;flex-wrap:wrap;gap:0.35rem;margin:0.15rem 0 0.5rem}
+.rec-chip{display:inline-flex;align-items:center;max-width:100%;padding:0.18rem 0.55rem;border:1px solid var(--border);border-radius:5px;background:rgba(139,123,184,0.1);color:var(--text2);font-size:0.7rem;font-weight:600;line-height:1.35}
+.rec-chip-warning{border-color:rgba(252,211,77,0.22);background:rgba(252,211,77,0.1);color:var(--yellow)}
+.rec-actions{margin-top:0.65rem;display:flex;gap:0.45rem;align-items:center;flex-wrap:wrap}
+.rec-primary-actions,.feedback-actions{display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap}
+.feedback-actions{margin-left:auto}
+.btn-feedback:disabled{opacity:0.75;cursor:default}
 
 /* Runs */
 .run-item{display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:0.4rem;cursor:pointer;font-size:0.82rem;transition:background var(--dur-hover,150ms)}
@@ -117,6 +132,11 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-text{font-size:0.9rem;color:var(--text2)}
 .loading-meta{font-size:0.72rem;color:var(--text3)}
+@media (max-width:560px){
+  .lane-option{flex:1 1 calc(50% - 0.45rem)}
+  .lane-option span{width:100%;justify-content:center;text-align:center}
+  .feedback-actions{margin-left:0;width:100%}
+}
 </style>
 </head>
 <body>
@@ -159,6 +179,27 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 <div class="card">
   <h2 style="margin-bottom:0.75rem">Run Recommendation</h2>
   <form id="run-form" onsubmit="return runRecs(event)">
+    <div class="field">
+      <label>Lane</label>
+      <div class="lane-control" role="group" aria-label="Recommendation lane">
+        <label class="lane-option">
+          <input type="radio" name="lane" value="best_match" {% if current_run_lane == 'best_match' %}checked{% endif %}>
+          <span>Best Match</span>
+        </label>
+        <label class="lane-option">
+          <input type="radio" name="lane" value="new_seasons" {% if current_run_lane == 'new_seasons' %}checked{% endif %}>
+          <span>New Seasons</span>
+        </label>
+        <label class="lane-option">
+          <input type="radio" name="lane" value="hidden_gems" {% if current_run_lane == 'hidden_gems' %}checked{% endif %}>
+          <span>Hidden Gems</span>
+        </label>
+        <label class="lane-option">
+          <input type="radio" name="lane" value="plan_list" {% if current_run_lane == 'plan_list' %}checked{% endif %}>
+          <span>Plan List</span>
+        </label>
+      </div>
+    </div>
     <div class="field-row">
       <div class="field">
         <label>Source</label>
@@ -215,15 +256,33 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 {% for pick in current_run_picks %}
 <div class="rec-card">
   <div class="top">
+    {% if pick.url %}
+    <a class="title title-link" href="{{ pick.url }}" target="_blank" rel="noopener noreferrer">{{ pick.title }}</a>
+    {% else %}
     <div class="title">{{ pick.title }}</div>
+    {% endif %}
     {% set score = pick.predicted_score | float %}
     <span class="score {% if score >= 8 %}score-high{% elif score >= 6 %}score-mid{% else %}score-low{% endif %}">{{ score }}/10</span>
   </div>
+  {% if pick.airing_status or pick.franchise_note or pick.sequence_warning %}
+  <div class="rec-chips">
+    {% if pick.airing_status == 'RELEASING' or pick.airing_status == 'FINISHED' %}
+    <span class="badge badge-purple">{{ pick.airing_status }}</span>
+    {% endif %}
+    {% if pick.franchise_note %}
+    <span class="rec-chip">{{ pick.franchise_note }}</span>
+    {% endif %}
+    {% if pick.sequence_warning %}
+    <span class="rec-chip rec-chip-warning">{{ pick.sequence_warning }}</span>
+    {% endif %}
+  </div>
+  {% endif %}
   <div class="reasoning">{{ pick.reasoning }}</div>
   {% if pick.best_match_from_history %}
   <div class="match">Pairs with: <strong>{{ pick.best_match_from_history }}</strong></div>
   {% endif %}
   <div class="rec-actions">
+    <div class="rec-primary-actions">
     {% set aid = pick.anilist_id %}
     {% if aid and aid in planned_ids %}
     <span class="badge badge-green">Planned</span>
@@ -232,12 +291,24 @@ tr:hover td{background:rgba(124,58,237,0.04)}
       <button type="submit" class="btn-remove">Remove</button>
     </form>
     {% elif aid %}
-    <form method="post" action="/plus/dashboard/plan-and-download" style="display:inline">
+    <form method="post" action="/plus/dashboard/plan" style="display:inline">
       <input type="hidden" name="anilist_id" value="{{ aid }}">
       <input type="hidden" name="title" value="{{ pick.title }}">
-      <button type="submit" class="btn btn-primary btn-small">+ Plan &amp; Download</button>
+      <button type="submit" class="btn btn-primary btn-small">Plan</button>
+    </form>
+    <form method="post" action="/plus/dashboard/download" style="display:inline">
+      <input type="hidden" name="anilist_id" value="{{ aid }}">
+      <input type="hidden" name="title" value="{{ pick.title }}">
+      <button type="submit" class="btn btn-secondary btn-small">Download</button>
     </form>
     {% endif %}
+    </div>
+    <div class="feedback-actions" data-title="{{ pick.title }}" data-source="{{ pick.source or current_run_source or 'anilist' }}" data-media-id="{{ pick.media_id or aid or '' }}" data-run-id="{{ current_run_id }}">
+      <button type="button" class="btn btn-ghost btn-feedback" data-feedback="interested">Interested</button>
+      <button type="button" class="btn btn-ghost btn-feedback" data-feedback="not_for_me">Pass</button>
+      <button type="button" class="btn btn-ghost btn-feedback" data-feedback="wrong_sequel">Wrong sequel</button>
+      <button type="button" class="btn btn-ghost btn-feedback" data-feedback="already_watched">Seen</button>
+    </div>
   </div>
 </div>
 {% endfor %}
@@ -293,7 +364,7 @@ tr:hover td{background:rgba(124,58,237,0.04)}
   </table>
 </div>
 {% else %}
-<div class="empty">No anime planned yet. Run recommendations and use <strong>+ Plan &amp; Download</strong> on results.</div>
+<div class="empty">No anime planned yet. Run recommendations and use <strong>Plan</strong> or <strong>Download</strong> on results.</div>
 {% endif %}
 
 </div>
@@ -313,6 +384,7 @@ async function runRecs(e) {
   _loadingTimer = setInterval(_tick, 1000);
   _tick();
 
+  const lane = document.querySelector('input[name="lane"]:checked').value;
   const body = JSON.stringify({
     source: document.getElementById('run-source').value,
     username: document.getElementById('run-username').value,
@@ -320,7 +392,8 @@ async function runRecs(e) {
     count: parseInt(document.getElementById('run-count').value),
     temperature: parseFloat(document.getElementById('run-temp').value),
     model: document.getElementById('run-model').value,
-    use_planning: document.getElementById('run-planning').checked,
+    lane: lane,
+    use_planning: lane === 'plan_list' || document.getElementById('run-planning').checked,
     skip_profile: document.getElementById('run-skip').checked,
   });
 
@@ -417,6 +490,39 @@ function _renderResults(data) {
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function intOrNull(value) {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+document.querySelectorAll('.btn-feedback').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const group = button.closest('.feedback-actions');
+    if (!group) return;
+    const original = button.textContent;
+    button.disabled = true;
+    try {
+      const resp = await fetch('/plus/api/feedback', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          feedback_type: button.dataset.feedback,
+          title: group.dataset.title,
+          source: group.dataset.source || 'anilist',
+          media_id: intOrNull(group.dataset.mediaId),
+          run_id: intOrNull(group.dataset.runId),
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data || data.status !== 'ok') throw new Error();
+      button.textContent = 'Saved';
+    } catch (ex) {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  });
+});
 </script>
 </body>
 </html>

@@ -5,11 +5,12 @@ Uses FastAPI TestClient with a per-test temp database.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import tempfile
 import time
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -86,6 +87,31 @@ def _drain_job(client: TestClient, resp, timeout: float = 5.0) -> None:
             return
         time.sleep(0.02)
     raise AssertionError(f"job {job_id} did not finish within {timeout}s")
+
+
+def _user_id(client: TestClient) -> int:
+    with _connect_client_db(client) as conn:
+        return conn.execute(
+            "SELECT id FROM users WHERE email = ?",
+            ("alice@example.com",),
+        ).fetchone()["id"]
+
+
+def _seed_run(
+    client: TestClient,
+    picks: list[dict],
+    *,
+    source: str = "anilist",
+    model: str = "test-model",
+    lane: str = "best_match",
+) -> int:
+    with _connect_client_db(client) as conn:
+        cursor = conn.execute(
+            "INSERT INTO run_history (user_id, source, model, picks, lane) VALUES (?, ?, ?, ?, ?)",
+            (_user_id(client), source, model, json.dumps(picks), lane),
+        )
+        conn.commit()
+        return cursor.lastrowid
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +192,20 @@ class TestDashboardAccess:
             assert 'name="skip_profile"' in html
             assert 'name="use_planning"' in html
             assert 'name="model"' in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_renders_lane_control(self, client):
+        """The run form exposes all recommendation lanes to authenticated users."""
+        try:
+            _signup_and_login(client)
+
+            html = client.get("/plus/dashboard").text
+            assert 'name="lane"' in html
+            assert 'value="best_match"' in html
+            assert 'value="new_seasons"' in html
+            assert 'value="hidden_gems"' in html
+            assert 'value="plan_list"' in html
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 
@@ -460,6 +500,165 @@ class TestDefaultAniListUsername:
 
 
 class TestPlanButton:
+    def test_dashboard_cards_have_split_plan_and_download_actions(self, client):
+        """Recommendation cards render separate Plan and Download form actions."""
+        try:
+            _signup_and_login(client)
+            run_id = _seed_run(
+                client,
+                [
+                    {
+                        "title": "One Piece",
+                        "predicted_score": 9.2,
+                        "reasoning": "Matches your love for long-running shonen.",
+                        "best_match_from_history": "Naruto",
+                        "url": "https://anilist.co/anime/21/",
+                        "source": "anilist",
+                        "anilist_id": 21,
+                        "media_id": 21,
+                    }
+                ],
+            )
+
+            html = client.get(f"/plus/dashboard?run={run_id}").text
+            assert "Plan &amp; Download" not in html
+            assert ">Plan<" in html
+            assert ">Download<" in html
+            assert 'action="/plus/dashboard/plan"' in html
+            assert 'action="/plus/dashboard/download"' in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_cards_have_feedback_buttons(self, client):
+        """Recommendation cards expose all supported feedback actions."""
+        try:
+            _signup_and_login(client)
+            run_id = _seed_run(
+                client,
+                [
+                    {
+                        "title": "One Piece",
+                        "predicted_score": 9.2,
+                        "reasoning": "Matches your love for long-running shonen.",
+                        "best_match_from_history": "Naruto",
+                        "url": "https://anilist.co/anime/21/",
+                        "source": "anilist",
+                        "anilist_id": 21,
+                        "media_id": 21,
+                    }
+                ],
+            )
+
+            html = client.get(f"/plus/dashboard?run={run_id}").text
+            assert 'data-feedback="interested"' in html
+            assert 'data-feedback="not_for_me"' in html
+            assert 'data-feedback="wrong_sequel"' in html
+            assert 'data-feedback="already_watched"' in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_cards_link_titles_show_chips_and_preserve_stored_anilist_id(self, client):
+        """Stored recommendation metadata drives card links, chips, and actions."""
+        try:
+            _signup_and_login(client)
+            run_id = _seed_run(
+                client,
+                [
+                    {
+                        "title": "Preserved ID",
+                        "predicted_score": 8.5,
+                        "reasoning": "A good sequel candidate.",
+                        "best_match_from_history": "Base Show",
+                        "url": "https://anilist.co/anime/999/",
+                        "source": "anilist",
+                        "anilist_id": 777,
+                        "media_id": 888,
+                        "airing_status": "RELEASING",
+                        "franchise_note": "Loved franchise continuation.",
+                        "sequence_warning": "Start with season 1.",
+                    }
+                ],
+            )
+
+            html = client.get(f"/plus/dashboard?run={run_id}").text
+            assert 'href="https://anilist.co/anime/999/"' in html
+            assert ">Preserved ID</a>" in html
+            assert 'value="777"' in html
+            assert 'value="999"' not in html
+            assert "RELEASING" in html
+            assert "Loved franchise continuation." in html
+            assert "Start with season 1." in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_uses_media_id_for_anilist_actions_when_anilist_id_missing(self, client):
+        """AniList run cards can fall back to media_id when anilist_id is absent."""
+        try:
+            _signup_and_login(client)
+            run_id = _seed_run(
+                client,
+                [
+                    {
+                        "title": "Media ID Pick",
+                        "predicted_score": 8.2,
+                        "reasoning": "A solid candidate.",
+                        "best_match_from_history": "Base Show",
+                        "url": None,
+                        "source": "anilist",
+                        "anilist_id": None,
+                        "media_id": 4242,
+                    }
+                ],
+            )
+
+            html = client.get(f"/plus/dashboard?run={run_id}").text
+            assert 'value="4242"' in html
+            assert ">Plan<" in html
+            assert ">Download<" in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_download_route_creates_local_planning_without_anilist_write(self, client):
+        """The dashboard Download action does not mutate AniList remotely."""
+        try:
+            _signup_and_login(client)
+            download_mock = AsyncMock(
+                return_value={
+                    "status": "no_rd_key",
+                    "detail": "Real-Debrid API key not configured",
+                }
+            )
+
+            with (
+                patch("omakase.plus.routes.with_valid_token") as token_mock,
+                patch("omakase.plus.routes.add_to_planning") as add_mock,
+                patch("omakase.plus.automation.search_and_download", new=download_mock),
+            ):
+                resp = client.post(
+                    "/plus/dashboard/download",
+                    data={"anilist_id": "21", "title": "One Piece"},
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            token_mock.assert_not_called()
+            add_mock.assert_not_called()
+            download_mock.assert_awaited_once()
+            with _connect_client_db(client) as conn:
+                row = conn.execute(
+                    """SELECT title, status, download_status
+                       FROM anilist_plannings
+                       WHERE user_id = ? AND anilist_id = ?""",
+                    (_user_id(client), 21),
+                ).fetchone()
+            assert dict(row) == {
+                "title": "One Piece",
+                "status": "PLANNING",
+                "download_status": "no_rd_key",
+            }
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
     def test_plan_button_creates_planning_and_request(self, client):
         """POST /plus/dashboard/plan inserts planning row."""
         try:

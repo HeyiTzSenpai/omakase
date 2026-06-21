@@ -263,6 +263,29 @@ def _extract_anilist_id(url: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _positive_int_or_none(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _recommendation_anilist_id(pick: dict, source: str) -> int | None:
+    stored_id = _positive_int_or_none(pick.get("anilist_id"))
+    if stored_id is not None:
+        return stored_id
+
+    if (pick.get("source") or source) == "anilist":
+        media_id = _positive_int_or_none(pick.get("media_id"))
+        if media_id is not None:
+            return media_id
+
+    return _extract_anilist_id(pick.get("url"))
+
+
 def _normalize_lane(value: str | None) -> str:
     return value if isinstance(value, str) and value in _LANES else "best_match"
 
@@ -329,7 +352,7 @@ async def dashboard(
     current_run_picks: list[dict] = []
     current_run_id = 0
     current_run_source = ""
-    current_run_lane = ""
+    current_run_lane = "best_match"
     if run:
         try:
             run_row = db.execute(
@@ -339,11 +362,16 @@ async def dashboard(
             if run_row:
                 current_run_id = run_row["id"]
                 current_run_source = run_row["source"]
-                current_run_lane = run_row["lane"]
+                current_run_lane = _normalize_lane(
+                    run_row["lane"] if "lane" in run_row.keys() else "best_match"
+                )
                 picks_data = json.loads(run_row["picks"])
                 for p in picks_data:
-                    anilist_id = _extract_anilist_id(p.get("url"))
+                    if not isinstance(p, dict):
+                        continue
+                    anilist_id = _recommendation_anilist_id(p, current_run_source)
                     p["anilist_id"] = anilist_id
+                    p["media_id"] = _positive_int_or_none(p.get("media_id")) or anilist_id
                 current_run_picks = picks_data
         except (ValueError, json.JSONDecodeError, TypeError):
             pass
@@ -716,39 +744,28 @@ async def dashboard_unplan(
     return RedirectResponse(url="/plus/dashboard", status_code=302)
 
 
-@router.post("/dashboard/plan-and-download")
-async def dashboard_plan_and_download(
+@router.post("/dashboard/download")
+async def dashboard_download(
     db=Depends(get_db),
     user=Depends(require_user),
     anilist_id: int = Form(...),
     title: str = Form(""),
 ):
-    """Plan on AniList + search nyaa.si + add to Real-Debrid. Form-based route."""
-    msg = ""
+    """Create a local planning target, then search nyaa.si and add to Real-Debrid."""
+    messages: list[str] = []
 
-    # 1. Plan on AniList (best-effort)
     existing = db.execute(
         "SELECT id FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
         (user.id, anilist_id),
     ).fetchone()
     if not existing:
-        client_id = os.getenv("ANILIST_CLIENT_ID", "")
-        client_secret = os.getenv("ANILIST_CLIENT_SECRET", "")
-        base_url = os.getenv("OMAKASE_PLUS_URL", "http://localhost:8765")
-        redirect_uri = f"{base_url}/plus/integrations/anilist/callback"
-        try:
-            with with_valid_token(db, user.id, client_id, client_secret, redirect_uri) as token:
-                add_to_planning(token, anilist_id, "PLANNING")
-        except (ValueError, httpx.HTTPError):
-            pass
         db.execute(
             "INSERT INTO anilist_plannings (user_id, anilist_id, title, status) VALUES (?, ?, ?, ?)",
             (user.id, anilist_id, title, "PLANNING"),
         )
         db.commit()
-        msg = "Planned"
+        messages.append("Queued")
 
-    # 2. Search nyaa + add to Real-Debrid
     from omakase.plus.automation import search_and_download
 
     result = await search_and_download(db, user.id, title)
@@ -756,34 +773,35 @@ async def dashboard_plan_and_download(
     if result["status"] == "ok":
         rd_id = result.get("rd_id", "")
         info = f"{result.get('torrent_title', title)} ({result.get('size', '?')}, {result.get('seeders', 0)}s)"
-        msg += f" · Downloading: {info}"
+        messages.append(f"Downloading: {info}")
         db.execute(
             "UPDATE anilist_plannings SET download_status = ?, download_info = ?, rd_torrent_id = ? WHERE user_id = ? AND anilist_id = ?",
             ("requested", info, rd_id, user.id, anilist_id),
         )
         db.commit()
     elif result["status"] == "no_rd_key":
-        msg += " · Set Real-Debrid API key in Settings to auto-download"
+        messages.append("Set Real-Debrid API key in Settings to auto-download")
         db.execute(
             "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
             ("no_rd_key", user.id, anilist_id),
         )
         db.commit()
     elif result["status"] == "not_found":
-        msg += f' · No torrents found on nyaa.si for "{title}"'
+        messages.append(f'No torrents found on nyaa.si for "{title}"')
         db.execute(
             "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
             ("not_found", user.id, anilist_id),
         )
         db.commit()
     elif result["status"] == "rd_error":
-        msg += f" · Real-Debrid: {result.get('detail', 'error')}"
+        messages.append(f"Real-Debrid: {result.get('detail', 'error')}")
         db.execute(
             "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
             ("error", user.id, anilist_id),
         )
         db.commit()
 
+    msg = " · ".join(messages)
     return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
 
 
