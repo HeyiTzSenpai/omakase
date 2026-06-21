@@ -8,6 +8,7 @@ import tempfile
 
 import pytest
 
+from omakase.plus import db as plus_db
 from omakase.plus.db import _db, get_db, run_migrations
 
 
@@ -49,7 +50,7 @@ def test_migration_001_applies_cleanly():
 
 
 def test_all_tables_exist(_fresh_db):
-    """Verify all seven expected tables are present after migration."""
+    """Verify all expected tables are present after migration."""
     conn = _fresh_db
     cursor = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
@@ -64,12 +65,44 @@ def test_all_tables_exist(_fresh_db):
         "run_history",
         "anilist_plannings",
         "overseerr_requests",
+        "recommendation_feedback",
         "_migrations",  # internal tracking table
     }
     assert tables == expected, (
         f"Mismatch — missing: {expected - tables}, extra: {tables - expected}"
     )
-    assert len(tables) == 8
+    assert len(tables) == 9
+
+
+def test_recommendation_feedback_migration_runs_before_existing_lane_error(monkeypatch, tmp_path):
+    """Feedback table should exist even if run_history.lane was added before migration 003."""
+    first_pass_dir = tmp_path / "migrations-without-003"
+    first_pass_dir.mkdir()
+    migrations_dir = plus_db._MIGRATIONS_DIR
+
+    for path in migrations_dir.iterdir():
+        if path.name == "003-recommendation-intelligence.sql":
+            continue
+        if path.suffix == ".sql":
+            (first_pass_dir / path.name).write_text(path.read_text(encoding="utf-8"))
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.row_factory = sqlite3.Row
+    monkeypatch.setattr(plus_db, "_MIGRATIONS_DIR", first_pass_dir)
+    plus_db.run_migrations(conn)
+
+    conn.execute("ALTER TABLE run_history ADD COLUMN lane TEXT NOT NULL DEFAULT 'best_match'")
+    conn.commit()
+
+    monkeypatch.setattr(plus_db, "_MIGRATIONS_DIR", migrations_dir)
+    plus_db.run_migrations(conn)
+
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ("recommendation_feedback",),
+    ).fetchone()
+    assert row is not None
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +203,29 @@ def test_run_history_roundtrip(_fresh_db):
     assert rows[0]["source"] == "anilist"
     assert rows[0]["model"] == "gpt-4o-mini"
     assert rows[0]["picks"] == '["Anime A", "Anime B"]'
+
+
+def test_recommendation_feedback_roundtrip(_fresh_db):
+    conn = _fresh_db
+    user_id = conn.execute(
+        "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+        ("feedback@example.com", "hash"),
+    ).lastrowid
+    conn.execute(
+        "INSERT INTO run_history (id, user_id, source, model, picks) VALUES (?, ?, ?, ?, ?)",
+        (7, user_id, "anilist", "gpt-4o-mini", "[]"),
+    )
+    conn.execute(
+        """INSERT INTO recommendation_feedback
+           (user_id, source, media_id, title, feedback_type, run_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (user_id, "anilist", 123, "Base 2", "wrong_sequel", 7),
+    )
+    row = conn.execute(
+        "SELECT * FROM recommendation_feedback WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+    assert row["feedback_type"] == "wrong_sequel"
 
 
 # ---------------------------------------------------------------------------
