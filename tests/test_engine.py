@@ -112,6 +112,34 @@ def test_resolve_urls_anilist_permalink_on_title_match():
     assert recs[0].url == "https://anilist.co/anime/99/"
 
 
+def test_resolve_urls_candidate_match_overrides_prefilled_bad_ids():
+    rec = Recommendation(
+        title="Vinland Saga",
+        predicted_score=9,
+        reasoning="",
+        best_match_from_history="",
+        anilist_id=999,
+        media_id=999,
+    )
+    candidate = MediaItem(
+        id=123,
+        title_romaji="Vinland Saga",
+        title_english="Vinland Saga",
+        status="FINISHED",
+        franchise_note="Loved franchise continuation.",
+        sequence_warning="Sequencing check",
+    )
+
+    _resolve_rec_urls([rec], [candidate], "anilist")
+
+    assert rec.url == "https://anilist.co/anime/123/"
+    assert rec.anilist_id == 123
+    assert rec.media_id == 123
+    assert rec.airing_status == "FINISHED"
+    assert rec.franchise_note == "Loved franchise continuation."
+    assert rec.sequence_warning == "Sequencing check"
+
+
 def test_resolve_urls_mal_permalink_on_title_match():
     candidates = [
         MediaItem(
