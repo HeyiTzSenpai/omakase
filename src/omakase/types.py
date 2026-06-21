@@ -6,6 +6,21 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class MediaRelation:
+    """AniList relation metadata for franchise-aware recommendation policy."""
+
+    relation_type: str
+    media_id: int
+    title_romaji: str
+    title_english: str | None = None
+    format: str | None = None
+    status: str | None = None
+    episodes: int | None = None
+    season: str | None = None
+    season_year: int | None = None
+
+
+@dataclass
 class MediaItem:
     """A single anime — either from the user's history or a candidate."""
 
@@ -24,6 +39,16 @@ class MediaItem:
     related_ids: list[int] = field(default_factory=list)
     # IDs of franchise relations (prequels/sequels/parents/side stories/etc.)
     # populated only for candidates; used to exclude same-franchise picks.
+    season: str | None = None
+    season_year: int | None = None
+    start_date: str | None = None
+    next_airing_episode: int | None = None
+    next_airing_at: int | None = None
+    relations: list[MediaRelation] = field(default_factory=list)
+    franchise_policy: str = "neutral"
+    franchise_note: str = ""
+    sequence_warning: str = ""
+    loose_order: bool = False
 
 
 @dataclass
@@ -36,6 +61,21 @@ class Recommendation:
     best_match_from_history: str
     url: str | None = None
     source: str | None = None
+    anilist_id: int | None = None
+    media_id: int | None = None
+    airing_status: str | None = None
+    franchise_note: str | None = None
+    sequence_warning: str | None = None
+    lane_reason: str | None = None
+
+
+@dataclass
+class RecommendationFeedbackSignal:
+    """Local Plus feedback that can influence future recommendation prompts."""
+
+    media_id: int | None
+    title: str
+    feedback_type: str
 
 
 @dataclass
@@ -67,6 +107,8 @@ class OmakaseConfig:
     supports_json_mode: bool = True  # some models don't support response_format
     use_planning: bool = False  # use user's Planning list as candidates
     export_data: bytes | None = None  # raw uploaded list export (MAL XML or .xml.gz)
+    recommendation_lane: str = "best_match"
+    feedback: list[RecommendationFeedbackSignal] = field(default_factory=list)
 
 
 # Default API base URLs for each backend.

@@ -73,6 +73,12 @@ def _parse_recommendations(raw: str) -> list[Recommendation]:
                 predicted_score=float(r.get("predicted_score", 0)),
                 reasoning=r.get("reasoning", ""),
                 best_match_from_history=r.get("best_match_from_history", ""),
+                anilist_id=r.get("anilist_id"),
+                media_id=r.get("media_id"),
+                airing_status=r.get("airing_status"),
+                franchise_note=r.get("franchise_note"),
+                sequence_warning=r.get("sequence_warning"),
+                lane_reason=r.get("lane_reason"),
             )
             for r in recs
         ]
@@ -127,6 +133,13 @@ def _resolve_rec_urls(
     for r in recs:
         r.source = source_name
         match = lookup.get(r.title.strip().lower())
+        if match:
+            if source_name == "anilist":
+                r.anilist_id = r.anilist_id or match.id
+            r.media_id = r.media_id or match.id
+            r.airing_status = r.airing_status or match.status
+            r.franchise_note = r.franchise_note or match.franchise_note or None
+            r.sequence_warning = r.sequence_warning or match.sequence_warning or None
         link = permalink(match) if match else None
         r.url = link or search_url(r.title)
 

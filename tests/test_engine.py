@@ -70,6 +70,28 @@ def test_handles_missing_fields_gracefully():
     assert recs[0].reasoning == ""
 
 
+def test_parse_recommendation_optional_intelligence_fields():
+    raw = (
+        '{"recommendations":[{'
+        '"title":"Frieren Season 2",'
+        '"predicted_score":9.1,'
+        '"reasoning":"because",'
+        '"best_match_from_history":"Frieren",'
+        '"anilist_id":123,'
+        '"airing_status":"RELEASING",'
+        '"franchise_note":"Loved franchise continuation",'
+        '"sequence_warning":"Start with season 1",'
+        '"lane_reason":"new season"'
+        "}]}"
+    )
+    rec = _parse_recommendations(raw)[0]
+    assert rec.anilist_id == 123
+    assert rec.airing_status == "RELEASING"
+    assert rec.franchise_note == "Loved franchise continuation"
+    assert rec.sequence_warning == "Start with season 1"
+    assert rec.lane_reason == "new season"
+
+
 def _rec(title: str) -> Recommendation:
     return Recommendation(
         title=title,

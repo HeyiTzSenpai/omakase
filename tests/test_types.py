@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from omakase.types import DEFAULT_URLS, MODEL_PRESETS, resolve_model_preset
+from omakase.types import (
+    DEFAULT_URLS,
+    MODEL_PRESETS,
+    MediaItem,
+    MediaRelation,
+    resolve_model_preset,
+)
 
 OLLAMA_DEFAULT = "http://localhost:11434"
 
@@ -69,3 +75,30 @@ def test_all_backends_have_default_urls():
 
     for backend in list_backends():
         assert backend in DEFAULT_URLS, f"{backend} missing from DEFAULT_URLS"
+
+
+def test_media_item_accepts_rich_relation_metadata():
+    item = MediaItem(
+        id=2,
+        title_romaji="Example Season 2",
+        season="SPRING",
+        season_year=2026,
+        start_date="2026-04-01",
+        next_airing_episode=4,
+        next_airing_at=1776200000,
+        relations=[
+            MediaRelation(
+                relation_type="PREQUEL",
+                media_id=1,
+                title_romaji="Example",
+                title_english="Example",
+                format="TV",
+                status="FINISHED",
+                episodes=12,
+                season="WINTER",
+                season_year=2025,
+            )
+        ],
+    )
+    assert item.relations[0].relation_type == "PREQUEL"
+    assert item.next_airing_episode == 4
