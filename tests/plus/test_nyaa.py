@@ -280,6 +280,95 @@ class TestFindBest:
 
         assert best is None
 
+    def test_short_one_token_title_rejects_longer_different_title(self):
+        wrong_title = self._make_torrent(
+            "[EMBER] Berserk of Gluttony (2023) (Boushoku no Berserk) [BD 1080p][HEVC]",
+            500,
+            trusted=True,
+            batch=True,
+            size_bytes=24_000_000_000,
+            size_display="22.4 GiB",
+        )
+        correct_title = self._make_torrent(
+            "[GoodGroup] Berserk - 01-25 Complete [1080p]",
+            25,
+            batch=True,
+            size_bytes=18_000_000_000,
+            size_display="16.8 GiB",
+        )
+
+        best = find_best([wrong_title, correct_title], expected_title="Berserk")
+
+        assert best is correct_title
+
+    def test_short_one_token_title_accepts_exact_title_level_release(self):
+        exact_title = self._make_torrent(
+            "[Group] Berserk (1997) [BD 1080p]",
+            30,
+            size_bytes=18_000_000_000,
+            size_display="16.8 GiB",
+        )
+
+        best = find_best([exact_title], expected_title="Berserk")
+
+        assert best is exact_title
+
+    def test_short_one_token_title_returns_none_when_only_longer_different_title_matches(
+        self,
+    ):
+        wrong_title = self._make_torrent(
+            "[EMBER] Berserk of Gluttony (2023) (Boushoku no Berserk) [BD 1080p][HEVC]",
+            500,
+            trusted=True,
+            batch=True,
+            size_bytes=24_000_000_000,
+            size_display="22.4 GiB",
+        )
+
+        best = find_best([wrong_title], expected_title="Berserk")
+
+        assert best is None
+
+    def test_short_one_token_title_rejects_season_and_part_fragments(self):
+        fragment_titles = [
+            "[Group] Berserk Season 2 - 01-12 Complete [1080p]",
+            "[Group] Berserk S2 - 01-12 Complete [1080p]",
+            "[Group] Berserk S 2 - 01-12 Complete [1080p]",
+            "[Group] Berserk S-2 - 01-12 Complete [1080p]",
+            "[Group] Berserk S_2 - 01-12 Complete [1080p]",
+            "[Group] Berserk S.2 - 01-12 Complete [1080p]",
+            "[Group] Berserk Part 2 - 01-12 Complete [1080p]",
+            "[Group] Berserk 2 Complete [1080p]",
+        ]
+
+        for title in fragment_titles:
+            torrent = self._make_torrent(
+                title,
+                100,
+                batch=True,
+                size_bytes=8_000_000_000,
+                size_display="7.5 GiB",
+            )
+            assert find_best([torrent], expected_title="Berserk") is None
+
+    def test_title_gate_keeps_matching_common_title_shapes(self):
+        cases = [
+            (
+                "Attack on Titan Final Season Part 2",
+                "[SubsPlease] Attack on Titan The Final Season Part 2 - 01 [1080p]",
+            ),
+            (
+                "BLEACH Thousand-Year Blood War",
+                "[Vodes] BLEACH Thousand-Year Blood War - 01 [1080p]",
+            ),
+            ("Dungeon Meshi", "[SubsPlease] Dungeon Meshi - 01 [1080p]"),
+            ("Frieren", "[SubsPlease] Frieren - 01-28 Complete [1080p]"),
+        ]
+
+        for expected_title, release_title in cases:
+            torrent = self._make_torrent(release_title, 50)
+            assert find_best([torrent], expected_title=expected_title) is torrent
+
     def test_rejects_common_extra_releases(self):
         extra_titles = [
             "[Group] Frieren NCOP [1080p]",

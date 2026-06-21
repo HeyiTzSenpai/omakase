@@ -110,18 +110,24 @@ _KNOWN_HIGH_QUALITY_GROUPS = (
 )
 
 _RAW_PATTERN = re.compile(r"\braws?\b", re.IGNORECASE)
+_SHORT_TITLE_TOKEN_MAX_LEN = 8
+_SHORT_TITLE_ROMAN = r"(?:ii|iii|iv|v|vi|vii|viii|ix|x)"
 _TITLE_STOPWORDS = {
     "a",
+    "all",
     "an",
     "and",
     "batch",
     "complete",
+    "episode",
+    "episodes",
     "movie",
     "of",
     "on",
     "ova",
     "part",
     "season",
+    "series",
     "special",
     "the",
     "to",
@@ -271,6 +277,22 @@ def _title_tokens(title: str) -> set[str]:
     }
 
 
+def _is_exact_short_title_release(candidate_title: str, expected_token: str) -> bool:
+    """Return True when a short one-token title is the whole release title."""
+    title = candidate_title.lower()
+    season_or_part_pattern = rf"\b(?:season|part)[\s._-]*(?:\d{{1,2}}|{_SHORT_TITLE_ROMAN})\b"
+    shorthand_season_pattern = rf"\bs[\s._-]*(?:\d{{1,2}}|{_SHORT_TITLE_ROMAN})\b"
+    numeric_sequel_pattern = (
+        rf"\b{re.escape(expected_token)}\b\s+"
+        rf"(?:\d{{1,3}}|{_SHORT_TITLE_ROMAN})\b"
+    )
+    if re.search(season_or_part_pattern, title) or re.search(shorthand_season_pattern, title):
+        return False
+    if re.search(numeric_sequel_pattern, title):
+        return False
+    return _title_tokens(candidate_title) == {expected_token}
+
+
 def _title_match_score(candidate_title: str, expected_title: str | None) -> float:
     if not expected_title:
         return 1.0
@@ -278,6 +300,11 @@ def _title_match_score(candidate_title: str, expected_title: str | None) -> floa
     expected_tokens = _title_tokens(expected_title)
     if not expected_tokens:
         return 1.0
+
+    if len(expected_tokens) == 1:
+        expected_token = next(iter(expected_tokens))
+        if len(expected_token) <= _SHORT_TITLE_TOKEN_MAX_LEN:
+            return 1.0 if _is_exact_short_title_release(candidate_title, expected_token) else 0.0
 
     candidate_tokens = _title_tokens(candidate_title)
     overlap = expected_tokens & candidate_tokens

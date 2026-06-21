@@ -143,6 +143,44 @@ def test_search_and_download_rejects_wrong_title_result():
     assert result["status"] == "not_found"
 
 
+def test_search_and_download_rejects_longer_title_for_short_generic_query():
+    """A short title must not download a different longer title."""
+    from omakase.plus.automation import search_and_download
+
+    wrong_title = NyaaTorrent(
+        title="[EMBER] Berserk of Gluttony (2023) (Boushoku no Berserk) [BD 1080p][HEVC]",
+        magnet="magnet:?xt=urn:btih:GLUTTONY",
+        seeders=500,
+        leechers=5,
+        size_bytes=24_000_000_000,
+        size_display="22.4 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=True,
+    )
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            raise AssertionError(f"wrong-title magnet should not be added: {magnet}")
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        assert title == "Berserk"
+        assert trusted_only is False
+        return [wrong_title]
+
+    with (
+        patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+        patch("omakase.plus.automation.search", side_effect=fake_search),
+        patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+    ):
+        result = asyncio.run(search_and_download(db=None, user_id=1, title="Berserk"))
+
+    assert result["status"] == "not_found"
+
+
 def test_search_and_download_reports_select_files_failure_and_cleans_up():
     """If RD accepts the magnet but cannot select files, report an error."""
     from omakase.plus.automation import search_and_download
