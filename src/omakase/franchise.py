@@ -77,11 +77,7 @@ def _history_buckets(
 
 def _history_item_satisfies_prerequisite(item: MediaItem) -> bool:
     status = (item.status or "").upper()
-    if status in SATISFIED_HISTORY_STATUSES:
-        return True
-    if status in LOW_STATUSES or status == "PLANNING":
-        return False
-    return item.score is not None
+    return status in SATISFIED_HISTORY_STATUSES
 
 
 def _satisfied_prerequisite_ids(history: list[MediaItem]) -> set[int]:

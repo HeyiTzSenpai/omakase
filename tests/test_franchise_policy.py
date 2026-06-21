@@ -222,6 +222,55 @@ def test_strict_relation_in_completed_history_has_no_sequence_warning():
     assert result[0].sequence_warning == ""
 
 
+def test_current_history_with_score_does_not_satisfy_strict_prerequisite():
+    history = [hist(1, "Base", score=8, status="CURRENT")]
+
+    plan_result = apply_lane_policy(
+        history,
+        [
+            cand(
+                2,
+                "Base 2",
+                relation_type="PREQUEL",
+                related_id=1,
+                relation_status="FINISHED",
+            )
+        ],
+        "plan_list",
+    )
+    assert "Sequencing check" in plan_result[0].sequence_warning
+
+    best_match_result = apply_lane_policy(
+        history,
+        [
+            cand(
+                2,
+                "Base 2",
+                relation_type="PREQUEL",
+                related_id=1,
+                relation_status="FINISHED",
+            )
+        ],
+        "best_match",
+    )
+    assert best_match_result == []
+
+    discover_result = apply_lane_policy(
+        history,
+        [
+            cand(
+                2,
+                "Base 2",
+                relation_type="PREQUEL",
+                related_id=1,
+                relation_status="FINISHED",
+            )
+        ],
+        "discover",
+    )
+    assert "Sequencing check" in discover_result[0].sequence_warning
+
+
 def test_loose_order_relation_suppresses_sequence_warning():
     candidate = cand(2, "Base OVA", relation_type="SIDE_STORY", related_id=1)
     result = apply_lane_policy([hist(1, "Base", score=9)], [candidate], "best_match")
