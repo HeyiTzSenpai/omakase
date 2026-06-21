@@ -39,6 +39,7 @@ from omakase.plus.auth import (
     delete_session as _delete_session,
 )
 from omakase.plus.deps import get_db
+from omakase.plus.feedback import feedback_for_prompt, save_feedback
 from omakase.plus.middleware import require_user
 from omakase.plus.secrets import delete_secret, read_secret, store_secret
 from omakase.types import OmakaseConfig, resolve_model_preset
@@ -251,6 +252,7 @@ async def logout(request: Request, db=Depends(get_db)):
 # ── Dashboard ───────────────────────────────────────────────
 
 _ANILIST_ID_RE = re.compile(r"https://anilist\.co/anime/(\d+)/")
+_LANES = {"best_match", "new_seasons", "hidden_gems", "plan_list"}
 
 
 def _extract_anilist_id(url: str | None) -> int | None:
@@ -259,6 +261,26 @@ def _extract_anilist_id(url: str | None) -> int | None:
         return None
     m = _ANILIST_ID_RE.search(url)
     return int(m.group(1)) if m else None
+
+
+def _normalize_lane(value: str | None) -> str:
+    return value if isinstance(value, str) and value in _LANES else "best_match"
+
+
+def _coerce_optional_int(value: object, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(f"{field_name} must be an integer") from None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field_name} must be an integer")
+    return value
 
 
 @router.get("/dashboard")
@@ -281,7 +303,7 @@ async def dashboard(
 
     # Load recent runs (last 10)
     recent_rows = db.execute(
-        """SELECT id, source, model, picks, created_at
+        """SELECT id, source, model, picks, lane, created_at
            FROM run_history WHERE user_id = ?
            ORDER BY id DESC LIMIT 10""",
         (user.id,),
@@ -297,6 +319,7 @@ async def dashboard(
                 "id": r["id"],
                 "source": r["source"],
                 "model": r["model"],
+                "lane": r["lane"],
                 "picks": picks,
                 "created_at": r["created_at"],
             }
@@ -306,15 +329,17 @@ async def dashboard(
     current_run_picks: list[dict] = []
     current_run_id = 0
     current_run_source = ""
+    current_run_lane = ""
     if run:
         try:
             run_row = db.execute(
-                "SELECT id, source, model, picks FROM run_history WHERE id = ? AND user_id = ?",
+                "SELECT id, source, model, picks, lane FROM run_history WHERE id = ? AND user_id = ?",
                 (int(run), user.id),
             ).fetchone()
             if run_row:
                 current_run_id = run_row["id"]
                 current_run_source = run_row["source"]
+                current_run_lane = run_row["lane"]
                 picks_data = json.loads(run_row["picks"])
                 for p in picks_data:
                     anilist_id = _extract_anilist_id(p.get("url"))
@@ -363,6 +388,7 @@ async def dashboard(
             "current_run_picks": current_run_picks,
             "current_run_id": current_run_id,
             "current_run_source": current_run_source,
+            "current_run_lane": current_run_lane,
             "plannings": plannings,
             "planned_ids": planned_ids,
             "error": error,
@@ -414,6 +440,9 @@ async def api_run(
     model = body.get("model", "")
     use_planning = body.get("use_planning", False)
     skip_profile = body.get("skip_profile", False)
+    lane = _normalize_lane(body.get("lane"))
+    if lane == "plan_list":
+        use_planning = True
 
     tp = db.execute("SELECT content FROM taste_profiles WHERE user_id = ?", (user.id,)).fetchone()
     taste_profile_content = tp["content"] if tp else ""
@@ -442,6 +471,7 @@ async def api_run(
         profile_path = tmp.name
 
     default_username = read_secret(db, user.id, "anilist_username") or ""
+    feedback = feedback_for_prompt(db, user.id)
     cfg = OmakaseConfig(
         source=source,
         username=username.strip() or default_username or user.email.split("@")[0],
@@ -459,6 +489,8 @@ async def api_run(
         mode=mode,
         supports_json_mode=supports_json,
         use_planning=use_planning,
+        recommendation_lane=lane,
+        feedback=feedback,
     )
 
     job_id = uuid.uuid4().hex
@@ -468,6 +500,7 @@ async def api_run(
             "user_id": user.id,
             "source": source,
             "model": model_resolved,
+            "lane": lane,
             "recs": None,
             "detail": "",
             "run_id": None,
@@ -506,11 +539,12 @@ async def api_run_status(
         recs = job["recs"]
         source = job["source"]
         model = job["model"]
+        lane = job["lane"]
 
     picks_json = json.dumps([asdict(r) for r in recs])
     cursor = db.execute(
-        "INSERT INTO run_history (user_id, source, model, picks) VALUES (?, ?, ?, ?)",
-        (user.id, source, model, picks_json),
+        "INSERT INTO run_history (user_id, source, model, picks, lane) VALUES (?, ?, ?, ?, ?)",
+        (user.id, source, model, picks_json, lane),
     )
     db.commit()
     run_id = cursor.lastrowid
@@ -523,6 +557,7 @@ async def api_run_status(
         "run_id": run_id,
         "source": source,
         "model": model,
+        "lane": lane,
         "recommendations": [asdict(r) for r in recs],
     }
 
@@ -539,7 +574,12 @@ async def dashboard_run(
     model: str = Form(""),
     use_planning: bool = Form(False),
     skip_profile: bool = Form(False),
+    lane: str = Form("best_match"),
 ):
+    lane = _normalize_lane(lane)
+    if lane == "plan_list":
+        use_planning = True
+
     # Read taste profile from DB
     tp = db.execute("SELECT content FROM taste_profiles WHERE user_id = ?", (user.id,)).fetchone()
     taste_profile_content = tp["content"] if tp else ""
@@ -573,6 +613,7 @@ async def dashboard_run(
         profile_path = tmp.name
 
     default_username = read_secret(db, user.id, "anilist_username") or ""
+    feedback = feedback_for_prompt(db, user.id)
     cfg = OmakaseConfig(
         source=source,
         username=username.strip() or default_username or user.email.split("@")[0],
@@ -586,6 +627,8 @@ async def dashboard_run(
         mode=mode,
         supports_json_mode=supports_json,
         use_planning=use_planning,
+        recommendation_lane=lane,
+        feedback=feedback,
     )
 
     try:
@@ -613,8 +656,8 @@ async def dashboard_run(
 
     picks_json = json.dumps([asdict(r) for r in recs])
     cursor = db.execute(
-        "INSERT INTO run_history (user_id, source, model, picks) VALUES (?, ?, ?, ?)",
-        (user.id, source, model_resolved, picks_json),
+        "INSERT INTO run_history (user_id, source, model, picks, lane) VALUES (?, ?, ?, ?, ?)",
+        (user.id, source, model_resolved, picks_json, lane),
     )
     db.commit()
     run_id = cursor.lastrowid
@@ -966,6 +1009,38 @@ async def anilist_disconnect(db=Depends(get_db), user=Depends(require_user)):
     """Remove the stored AniList OAuth token."""
     delete_secret(db, user.id, "anilist_oauth_token")
     return RedirectResponse(url="/plus/settings", status_code=302)
+
+
+@router.post("/api/feedback")
+async def feedback_api(
+    request: Request,
+    db=Depends(get_db),
+    user=Depends(require_user),
+):
+    try:
+        body = await request.json()
+    except Exception:
+        return {"status": "error", "detail": "Invalid JSON body"}
+    if not isinstance(body, dict):
+        return {"status": "error", "detail": "Invalid JSON body"}
+
+    feedback_type = body.get("feedback_type", "")
+    title = body.get("title", "")
+    source = body.get("source", "anilist")
+    if not title:
+        return {"status": "error", "detail": "title is required"}
+
+    try:
+        media_id = _coerce_optional_int(body.get("media_id"), "media_id")
+        run_id = _coerce_optional_int(body.get("run_id"), "run_id")
+    except ValueError as e:
+        return {"status": "error", "detail": str(e)}
+
+    try:
+        save_feedback(db, user.id, source, media_id, title, feedback_type, run_id)
+    except ValueError as e:
+        return {"status": "error", "detail": str(e)}
+    return {"status": "ok"}
 
 
 @router.post("/api/plan")

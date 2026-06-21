@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from omakase.plus.db import _db, run_migrations
 from omakase.plus.deps import get_db as _deps_get_db
+from omakase.plus.feedback import save_feedback
 from omakase.plus.routes import _login_attempts
 from omakase.types import Recommendation
 
@@ -33,6 +34,13 @@ def _make_test_conn(db_dir: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode=WAL")
     run_migrations(conn)
+    return conn
+
+
+def _connect_client_db(client: TestClient) -> sqlite3.Connection:
+    conn = sqlite3.connect(client.db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -94,6 +102,7 @@ def _clear_rate_limiter():
 def client():
     """FastAPI TestClient wired to a per-test temp database."""
     tmp = tempfile.mkdtemp()
+    db_path = os.path.join(tmp, "omakase-plus.db")
 
     def _override_deps_get_db():
         return _make_test_conn(tmp)
@@ -104,7 +113,10 @@ def client():
     app.include_router(router)
     app.dependency_overrides[_deps_get_db] = _override_deps_get_db
 
-    yield TestClient(app)
+    test_client = TestClient(app)
+    test_client.db_path = db_path
+
+    yield test_client
 
     _cleanup_db_cache()
     import shutil
@@ -315,6 +327,66 @@ class TestRunRecommendation:
             follow_redirects=False,
         )
         assert resp.status_code in (302, 401)
+
+    def test_dashboard_run_passes_lane_feedback_and_persists_lane(self, client):
+        """Form runs pass lane/feedback into the engine and persist the selected lane."""
+        captured = {}
+        mock_recs = [
+            Recommendation(
+                title="Base 2",
+                predicted_score=8.4,
+                reasoning="Direct continuation of a liked series.",
+                best_match_from_history="Base",
+                url="https://anilist.co/anime/123/",
+                source="anilist",
+            ),
+        ]
+
+        def _capture(cfg):
+            captured["lane"] = cfg.recommendation_lane
+            captured["use_planning"] = cfg.use_planning
+            captured["feedback_types"] = [f.feedback_type for f in cfg.feedback]
+            return mock_recs
+
+        try:
+            _signup_and_login(client)
+            with _connect_client_db(client) as conn:
+                user_id = conn.execute(
+                    "SELECT id FROM users WHERE email = ?",
+                    ("alice@example.com",),
+                ).fetchone()["id"]
+                save_feedback(conn, user_id, "anilist", 123, "Base 2", "interested", None)
+
+            with patch("omakase.plus.routes.run_pipeline", side_effect=_capture):
+                resp = client.post(
+                    "/plus/dashboard/run",
+                    data={
+                        "source": "anilist",
+                        "mode": "fast",
+                        "count": "5",
+                        "temperature": "0.5",
+                        "username": "testuser",
+                        "skip_profile": "true",
+                        "lane": "plan_list",
+                    },
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            run_id = int(resp.headers["location"].split("run=")[1])
+            assert captured == {
+                "lane": "plan_list",
+                "use_planning": True,
+                "feedback_types": ["interested"],
+            }
+            with _connect_client_db(client) as conn:
+                row = conn.execute(
+                    "SELECT lane FROM run_history WHERE id = ?",
+                    (run_id,),
+                ).fetchone()
+            assert row["lane"] == "plan_list"
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
 
 
 class TestDefaultAniListUsername:

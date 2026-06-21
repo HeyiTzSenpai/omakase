@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 
 from omakase.plus.db import _db, run_migrations
 from omakase.plus.deps import get_db as _deps_get_db
+from omakase.plus.feedback import save_feedback
 from omakase.plus.routes import _login_attempts
 from omakase.types import Recommendation
 
@@ -39,6 +40,13 @@ def _make_test_conn(db_dir: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode=WAL")
     run_migrations(conn)
+    return conn
+
+
+def _connect_client_db(client: TestClient) -> sqlite3.Connection:
+    conn = sqlite3.connect(client.db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -116,6 +124,7 @@ def _clear_rate_limiter():
 @pytest.fixture
 def client():
     tmp = tempfile.mkdtemp()
+    db_path = os.path.join(tmp, "omakase-plus.db")
 
     def _override_deps_get_db():
         return _make_test_conn(tmp)
@@ -126,7 +135,10 @@ def client():
     app.include_router(router)
     app.dependency_overrides[_deps_get_db] = _override_deps_get_db
 
-    yield TestClient(app)
+    test_client = TestClient(app)
+    test_client.db_path = db_path
+
+    yield test_client
 
     _cleanup_db_cache()
     import shutil
@@ -266,5 +278,127 @@ class TestJobLifecycle:
             # No silent 0-pick row was written.
             html = client.get("/plus/dashboard").text
             assert "Vinland Saga" not in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_api_run_passes_lane_and_feedback_to_pipeline(self, client, monkeypatch):
+        """POST /plus/api/run passes the selected lane and local feedback into config."""
+        seen = {}
+
+        def fake_run(cfg):
+            seen["lane"] = cfg.recommendation_lane
+            seen["feedback_types"] = [f.feedback_type for f in cfg.feedback]
+            return []
+
+        try:
+            _signup_and_login(client)
+            with _connect_client_db(client) as conn:
+                user_id = conn.execute(
+                    "SELECT id FROM users WHERE email = ?",
+                    ("alice@example.com",),
+                ).fetchone()["id"]
+                save_feedback(conn, user_id, "anilist", 123, "Base 2", "not_for_me", None)
+
+            monkeypatch.setattr("omakase.plus.routes.run_pipeline", fake_run)
+            monkeypatch.setattr(
+                "omakase.plus.routes.read_secret",
+                lambda db, user_id, key: "HeyiTzSenpai" if key == "anilist_username" else "",
+            )
+            response = client.post(
+                "/plus/api/run",
+                json={
+                    "source": "anilist",
+                    "username": "me",
+                    "mode": "fast",
+                    "count": 3,
+                    "lane": "new_seasons",
+                },
+            )
+            job_id = response.json()["job_id"]
+            status = _wait_for_job(client, job_id)
+
+            assert status["status"] == "ok"
+            assert seen["lane"] == "new_seasons"
+            assert "not_for_me" in seen["feedback_types"]
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_api_run_defaults_invalid_lane_to_best_match(self, client, monkeypatch):
+        """Invalid public lane values fall back to best_match."""
+        seen = {}
+
+        def fake_run(cfg):
+            seen["lane"] = cfg.recommendation_lane
+            return []
+
+        try:
+            _signup_and_login(client)
+            monkeypatch.setattr("omakase.plus.routes.run_pipeline", fake_run)
+            response = client.post(
+                "/plus/api/run",
+                json={"source": "anilist", "mode": "fast", "count": 3, "lane": "surprise_me"},
+            )
+            status = _wait_for_job(client, response.json()["job_id"])
+
+            assert status["status"] == "ok"
+            assert status["lane"] == "best_match"
+            assert seen["lane"] == "best_match"
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_api_run_plan_list_lane_forces_planning(self, client, monkeypatch):
+        """The plan_list lane always uses the user's planning list as the source pool."""
+        seen = {}
+
+        def fake_run(cfg):
+            seen["lane"] = cfg.recommendation_lane
+            seen["use_planning"] = cfg.use_planning
+            return []
+
+        try:
+            _signup_and_login(client)
+            monkeypatch.setattr("omakase.plus.routes.run_pipeline", fake_run)
+            response = client.post(
+                "/plus/api/run",
+                json={
+                    "source": "anilist",
+                    "mode": "fast",
+                    "count": 3,
+                    "lane": "plan_list",
+                    "use_planning": False,
+                },
+            )
+            status = _wait_for_job(client, response.json()["job_id"])
+
+            assert status["status"] == "ok"
+            assert seen == {"lane": "plan_list", "use_planning": True}
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_completed_job_persists_and_returns_lane(self, client):
+        """A finished async run stores lane in run_history and returns it from status."""
+        try:
+            _signup_and_login(client)
+            with patch("omakase.plus.routes.run_pipeline", return_value=_MOCK_RECS):
+                response = client.post(
+                    "/plus/api/run",
+                    json={
+                        "source": "anilist",
+                        "mode": "pro",
+                        "count": 8,
+                        "skip_profile": True,
+                        "lane": "hidden_gems",
+                    },
+                )
+                result = _wait_for_job(client, response.json()["job_id"])
+
+            assert result["status"] == "ok"
+            assert result["lane"] == "hidden_gems"
+            with _connect_client_db(client) as conn:
+                row = conn.execute(
+                    "SELECT lane FROM run_history WHERE id = ?",
+                    (result["run_id"],),
+                ).fetchone()
+            assert row["lane"] == "hidden_gems"
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
