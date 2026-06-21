@@ -72,10 +72,151 @@ _BATCH_PATTERNS = [
     re.compile(r"\b\d{2,3}-\d{2,3}\b"),  # episode ranges like 01-12
 ]
 
+_REJECT_PATTERNS = [
+    re.compile(
+        r"\b(hdcam|camrip|cam|hdts|telesync|telecine|dvdscr|screener)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bsample\b", re.IGNORECASE),
+]
+
+_SOURCE_SCORES = [
+    (
+        re.compile(r"\b(blu[\s._-]?ray|bluray|bd[\s._-]?rip|bdrip|bdmv|bdremux)\b", re.I),
+        130,
+    ),
+    (re.compile(r"\b(web[\s._-]?(dl|rip)|webrip)\b", re.I), 120),
+    (re.compile(r"\bhdtv\b", re.I), 45),
+    (re.compile(r"\bdvd[\s._-]?rip\b", re.I), 20),
+]
+
+_KNOWN_HIGH_QUALITY_GROUPS = (
+    "subsplease",
+    "judas",
+    "ember",
+    "mtbb",
+    "asenshi",
+    "commie",
+    "deanzel",
+    "vodes",
+)
+
+_RAW_PATTERN = re.compile(r"\braws?\b", re.IGNORECASE)
+
 
 def _is_likely_batch(title: str) -> bool:
     """Heuristic: detect batch/complete-series torrents from title patterns."""
     return any(p.search(title) for p in _BATCH_PATTERNS)
+
+
+def _is_rejected_quality(title: str) -> bool:
+    """Return True for releases that should never be auto-downloaded."""
+    return any(p.search(title) for p in _REJECT_PATTERNS)
+
+
+def _resolution_score(title: str) -> int:
+    if re.search(r"\b(2160p|4k|uhd)\b", title, re.IGNORECASE):
+        return 190
+    if re.search(r"\b1080p\b", title, re.IGNORECASE):
+        return 180
+    if re.search(r"\b720p\b", title, re.IGNORECASE):
+        return 55
+    if re.search(r"\b(480p|576p)\b", title, re.IGNORECASE):
+        return -130
+    if re.search(r"\b(360p|240p)\b", title, re.IGNORECASE):
+        return -180
+    return 0
+
+
+def _source_score(title: str) -> int:
+    for pattern, score in _SOURCE_SCORES:
+        if pattern.search(title):
+            return score
+    return 0
+
+
+def _seeder_score(seeders: int) -> int:
+    if seeders >= 500:
+        return 80
+    if seeders >= 200:
+        return 70
+    if seeders >= 100:
+        return 60
+    if seeders >= 50:
+        return 50
+    if seeders >= 20:
+        return 40
+    if seeders >= 10:
+        return 30
+    if seeders >= 5:
+        return 20
+    if seeders >= 2:
+        return 10
+    return 0
+
+
+def _size_score(torrent: NyaaTorrent) -> int:
+    mib = 1024**2
+    gib = 1024**3
+    size = torrent.size_bytes
+
+    if size <= 0:
+        return 0
+    if size < 300 * mib:
+        return -70
+    if size < 700 * mib:
+        return -25
+    if torrent.is_batch and size >= 20 * gib:
+        return 35
+    if size >= 4 * gib:
+        return 25
+    if size >= 1 * gib:
+        return 15
+    return 0
+
+
+def _has_known_high_quality_group(title: str) -> bool:
+    normalized_title = title.lower()
+    for group in _KNOWN_HIGH_QUALITY_GROUPS:
+        pattern = rf"(^|[\[\s._-]){re.escape(group)}($|[\]\s._-])"
+        if re.search(pattern, normalized_title):
+            return True
+    return False
+
+
+def _quality_score(
+    torrent: NyaaTorrent,
+    *,
+    prefer_trusted: bool,
+    prefer_no_batch: bool,
+) -> int:
+    title = torrent.title
+    normalized_title = title.lower()
+    score = 0
+
+    if prefer_trusted and torrent.is_trusted:
+        score += 70
+    if _has_known_high_quality_group(normalized_title):
+        score += 50
+
+    score += _resolution_score(title)
+    score += _source_score(title)
+    score += _seeder_score(torrent.seeders)
+    score += _size_score(torrent)
+
+    if prefer_no_batch:
+        score += 80 if not torrent.is_batch else -40
+    elif torrent.is_batch:
+        score += 90
+
+    if _RAW_PATTERN.search(title):
+        score -= 85
+    if re.search(r"\b(hevc|x265|10[\s._-]?bit)\b", title, re.IGNORECASE):
+        score += 20
+    if re.search(r"\bx264\b", title, re.IGNORECASE):
+        score += 10
+
+    return score
 
 
 async def search(
@@ -169,31 +310,39 @@ def find_best(
     torrents: list[NyaaTorrent],
     *,
     prefer_trusted: bool = True,
-    prefer_no_batch: bool = True,
+    prefer_no_batch: bool = False,
     min_seeders: int = 1,
 ) -> NyaaTorrent | None:
     """Pick the best torrent from search results.
 
-    Heuristic (in priority order):
-    1. Trusted uploads preferred
-    2. Non-batch releases preferred (individual episodes over complete series)
-    3. Highest seeders wins
+    Heuristic:
+    - Reject CAM/sample-style releases outright.
+    - Prefer high-quality resolutions and sources (2160p/1080p, BluRay/BDRip/Web-DL).
+    - Prefer trusted/known high-quality uploaders, adequate seeders, and sane file sizes.
+    - Prefer complete batches by default because Plus downloads title-level recommendations.
 
     Returns ``None`` if no torrent meets the minimum seeders threshold.
     """
     if not torrents:
         return None
 
-    candidates = [t for t in torrents if t.seeders >= min_seeders]
+    candidates = [
+        t for t in torrents if t.seeders >= min_seeders and not _is_rejected_quality(t.title)
+    ]
     if not candidates:
         return None
 
-    # Sort by: trusted > non-batch > seeders
-    def _key(t: NyaaTorrent) -> tuple[int, int, int]:
+    def _key(t: NyaaTorrent) -> tuple[int, int, int, str]:
+        quality = _quality_score(
+            t,
+            prefer_trusted=prefer_trusted,
+            prefer_no_batch=prefer_no_batch,
+        )
         return (
-            0 if (prefer_trusted and t.is_trusted) else 1,
-            0 if (prefer_no_batch and not t.is_batch) else 1,
-            -t.seeders,  # negative for descending
+            -quality,
+            -t.seeders,
+            -t.size_bytes,
+            t.title.lower(),
         )
 
     candidates.sort(key=_key)
