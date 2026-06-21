@@ -268,10 +268,20 @@ def _hist():
 
 
 def test_fetch_drops_sequel_via_relations():
-    """A sequel whose ``related_ids`` point at a history id must be excluded."""
+    """A sequel whose rich relation points at a history id must be excluded."""
     adapter = AniListAdapter()
     candidates_in = [
-        MediaItem(id=101, title_romaji="Gintama: THE VERY FINAL", related_ids=[100]),
+        MediaItem(
+            id=101,
+            title_romaji="The Very Final",
+            relations=[
+                MediaRelation(
+                    relation_type="PREQUEL",
+                    media_id=100,
+                    title_romaji="Dropped First Season",
+                )
+            ],
+        ),
         MediaItem(id=999, title_romaji="Fresh Original Show", related_ids=[]),
     ]
     with (
@@ -281,8 +291,37 @@ def test_fetch_drops_sequel_via_relations():
     ):
         data = adapter.fetch("anyuser", use_planning=False)
     cand_ids = {c.id for c in data.candidates}
-    assert 101 not in cand_ids, "sequel pointed at history by relations must be dropped"
+    assert 101 not in cand_ids, "sequel related to history must be dropped"
     assert 999 in cand_ids, "unrelated candidate must pass through"
+
+
+def test_fetch_internal_lanes_default_to_best_match_filtering():
+    """The public adapter must not expose internal lane policies."""
+    adapter = AniListAdapter()
+    history = [MediaItem(id=1, title_romaji="Watched Base", score=9, status="COMPLETED")]
+    missing_prequel = MediaItem(
+        id=2,
+        title_romaji="Unseen Follow-up",
+        relations=[
+            MediaRelation(
+                relation_type="PREQUEL",
+                media_id=999,
+                title_romaji="Missing First Entry",
+                status="FINISHED",
+            )
+        ],
+    )
+    original = MediaItem(id=3, title_romaji="Fresh Original Show")
+
+    with (
+        patch.object(adapter, "_fetch_history", return_value=history),
+        patch.object(adapter, "_fetch_candidates", return_value=[missing_prequel, original]),
+        patch.object(adapter, "_analyze_genre_affinity", return_value=[]),
+    ):
+        for lane in ("discover", "plan_list", "not-a-public-lane"):
+            data = adapter.fetch("anyuser", use_planning=False, recommendation_lane=lane)
+
+            assert [candidate.id for candidate in data.candidates] == [3]
 
 
 def test_fetch_blocks_dropped_title_stem_but_keeps_unscored_completed_franchise():

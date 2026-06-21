@@ -16,6 +16,7 @@ from omakase.types import MediaItem, MediaRelation, SourceData
 
 API_URL = "https://graphql.anilist.co"
 USER_AGENT = "Omakase/0.1 (homelab; +https://github.com/HeyiTzSenpai/omakase)"
+PUBLIC_RECOMMENDATION_LANES = frozenset({"best_match", "new_seasons", "hidden_gems"})
 
 # AniList relation types that mean "same franchise". These feed both the
 # richer relation metadata and the legacy title/relation helpers below; fetch()
@@ -111,6 +112,12 @@ def _date_string(value: dict | None) -> str | None:
     month = value.get("month") or 1
     day = value.get("day") or 1
     return f"{value['year']:04d}-{month:02d}-{day:02d}"
+
+
+def _normalize_public_lane(lane: object) -> str:
+    if isinstance(lane, str) and lane in PUBLIC_RECOMMENDATION_LANES:
+        return lane
+    return "best_match"
 
 
 def _parse_relations(media: dict) -> tuple[list[int], list[MediaRelation]]:
@@ -604,7 +611,7 @@ class AniListAdapter(SourceAdapter):
         exclude_ids = [m.id for m in history if m.id]
 
         use_planning = kwargs.get("use_planning", False)
-        lane = kwargs.get("recommendation_lane", "best_match")
+        lane = _normalize_public_lane(kwargs.get("recommendation_lane", "best_match"))
         if use_planning:
             candidates = self._fetch_planning(username)
             watched_ids = {
