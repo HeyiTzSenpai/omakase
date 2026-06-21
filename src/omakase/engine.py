@@ -134,12 +134,14 @@ def _resolve_rec_urls(
         r.source = source_name
         match = lookup.get(r.title.strip().lower())
         if match:
-            if source_name == "anilist":
-                r.anilist_id = match.id
             r.media_id = match.id
+            r.anilist_id = match.id if source_name == "anilist" else None
             r.airing_status = r.airing_status or match.status
             r.franchise_note = r.franchise_note or match.franchise_note or None
             r.sequence_warning = r.sequence_warning or match.sequence_warning or None
+        else:
+            r.media_id = None
+            r.anilist_id = None
         link = permalink(match) if match else None
         r.url = link or search_url(r.title)
 

@@ -154,6 +154,28 @@ def test_resolve_urls_mal_permalink_on_title_match():
     assert recs[0].url == "https://myanimelist.net/anime/5114/"
 
 
+def test_resolve_rec_urls_clears_anilist_id_for_mal_match():
+    rec = Recommendation(
+        title="Vinland Saga",
+        predicted_score=9,
+        reasoning="",
+        best_match_from_history="",
+        anilist_id=999,
+        media_id=999,
+    )
+    candidate = MediaItem(
+        id=456,
+        title_romaji="Vinland Saga",
+        title_english="Vinland Saga",
+    )
+
+    _resolve_rec_urls([rec], [candidate], "myanimelist")
+
+    assert rec.url == "https://myanimelist.net/anime/456/"
+    assert rec.media_id == 456
+    assert rec.anilist_id is None
+
+
 def test_resolve_urls_falls_back_to_search_when_no_match():
     candidates = [MediaItem(id=1, title_romaji="Cowboy Bebop", title_english="Cowboy Bebop")]
     recs = [_rec("Some Obscure Title")]
@@ -161,6 +183,24 @@ def test_resolve_urls_falls_back_to_search_when_no_match():
     assert recs[0].url is not None
     assert "anilist.co/search/anime" in recs[0].url
     assert "Some+Obscure+Title" in recs[0].url
+
+
+def test_resolve_rec_urls_clears_unverified_ids_on_search_fallback():
+    candidates = [MediaItem(id=1, title_romaji="Cowboy Bebop", title_english="Cowboy Bebop")]
+    rec = Recommendation(
+        title="Some Obscure Title",
+        predicted_score=9,
+        reasoning="",
+        best_match_from_history="",
+        anilist_id=999,
+        media_id=999,
+    )
+
+    _resolve_rec_urls([rec], candidates, "anilist")
+
+    assert rec.url == "https://anilist.co/search/anime?search=Some+Obscure+Title"
+    assert rec.anilist_id is None
+    assert rec.media_id is None
 
 
 def test_resolve_urls_match_is_case_insensitive_and_uses_romaji_too():
