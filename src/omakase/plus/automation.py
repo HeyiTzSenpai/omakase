@@ -37,6 +37,9 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
     candidates = rank_best(results, expected_title=title)
     if not candidates:
         return {"status": "not_found", "detail": f'No seedable torrents found for "{title}"'}
+    batch_candidates = [candidate for candidate in candidates if candidate.is_batch]
+    if batch_candidates:
+        candidates = batch_candidates
 
     # 3. Add magnets to Real-Debrid, falling back when a specific hash is rejected.
     client = RealDebridClient(rd_key)

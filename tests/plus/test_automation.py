@@ -287,6 +287,69 @@ def test_search_and_download_returns_rd_error_when_all_ranked_candidates_are_rej
     assert calls["magnets"] == [first.magnet, second.magnet]
 
 
+def test_search_and_download_does_not_fallback_from_batch_to_single_episode():
+    """Title-level downloads should not degrade from a blocked batch to one episode."""
+    from omakase.plus.automation import search_and_download
+
+    batch = NyaaTorrent(
+        title="[EMBER] Bleach: Thousand-Year Blood War - The Conflict (Batch) [1080p]",
+        magnet="magnet:?xt=urn:btih:BATCH451",
+        seeders=80,
+        leechers=5,
+        size_bytes=5_200_000_000,
+        size_display="4.9 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=True,
+    )
+    episode = NyaaTorrent(
+        title="[EMBER] Bleach: Thousand-Year Blood War - The Conflict - 32 [1080p]",
+        magnet="magnet:?xt=urn:btih:EPISODE",
+        seeders=70,
+        leechers=5,
+        size_bytes=390_000_000,
+        size_display="371.9 MiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=False,
+    )
+    calls = {"magnets": []}
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            calls["magnets"].append(magnet)
+            if magnet == batch.magnet:
+                return None
+            return "rd-episode"
+
+        async def select_files(self, torrent_id: str, files: str = "all") -> bool:
+            raise AssertionError("single-episode fallback should not be selected")
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        assert title == "BLEACH: Thousand-Year Blood War - The Conflict"
+        assert trusted_only is False
+        return [episode, batch]
+
+    with (
+        patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+        patch("omakase.plus.automation.search", side_effect=fake_search),
+        patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+    ):
+        result = asyncio.run(
+            search_and_download(
+                db=None,
+                user_id=1,
+                title="BLEACH: Thousand-Year Blood War - The Conflict",
+            )
+        )
+
+    assert result["status"] == "rd_error"
+    assert calls["magnets"] == [batch.magnet]
+
+
 def test_search_and_download_rejects_wrong_title_result():
     """Wrong-title search results should not be handed to Real-Debrid."""
     from omakase.plus.automation import search_and_download
