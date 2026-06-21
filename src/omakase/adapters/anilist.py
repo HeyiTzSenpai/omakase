@@ -11,13 +11,15 @@ import re
 from urllib.request import Request, urlopen
 
 from omakase.adapters.base import SourceAdapter, register
-from omakase.types import MediaItem, SourceData
+from omakase.franchise import apply_lane_policy
+from omakase.types import MediaItem, MediaRelation, SourceData
 
 API_URL = "https://graphql.anilist.co"
 USER_AGENT = "Omakase/0.1 (homelab; +https://github.com/HeyiTzSenpai/omakase)"
 
-# AniList relation types that mean "same franchise". Used to drop candidates
-# whose relations point at anything in the user's history.
+# AniList relation types that mean "same franchise". These feed both the
+# richer relation metadata and the legacy title/relation helpers below; fetch()
+# now delegates keep/boost/block decisions to omakase.franchise.apply_lane_policy.
 FRANCHISE_RELATION_TYPES = frozenset(
     {
         "PREQUEL",
@@ -73,7 +75,7 @@ def _title_stem(title: str | None) -> str:
 
 
 def _build_franchise_block(history: list[MediaItem]) -> tuple[set[int], set[str]]:
-    """Build the franchise exclusion set from history.
+    """Build the legacy franchise match set from history.
 
     Returns (history_ids, history_stems). A candidate is "in-franchise" iff
     its id, any of its related_ids, or its title stem hits one of these sets.
@@ -101,6 +103,39 @@ def _candidate_is_in_franchise(
         if stem and stem in history_stems:
             return True
     return False
+
+
+def _date_string(value: dict | None) -> str | None:
+    if not value or not value.get("year"):
+        return None
+    month = value.get("month") or 1
+    day = value.get("day") or 1
+    return f"{value['year']:04d}-{month:02d}-{day:02d}"
+
+
+def _parse_relations(media: dict) -> tuple[list[int], list[MediaRelation]]:
+    related_ids: list[int] = []
+    relations: list[MediaRelation] = []
+    for edge in media.get("relations", {}).get("edges", []) or []:
+        rtype = edge.get("relationType")
+        node = edge.get("node") or {}
+        if not rtype or node.get("type") != "ANIME" or not node.get("id"):
+            continue
+        relation = MediaRelation(
+            relation_type=rtype,
+            media_id=node["id"],
+            title_romaji=node.get("title", {}).get("romaji", ""),
+            title_english=node.get("title", {}).get("english"),
+            format=node.get("format"),
+            status=node.get("status"),
+            episodes=node.get("episodes"),
+            season=node.get("season"),
+            season_year=node.get("seasonYear"),
+        )
+        relations.append(relation)
+        if rtype in FRANCHISE_RELATION_TYPES:
+            related_ids.append(node["id"])
+    return related_ids, relations
 
 
 @register("anilist")
@@ -135,9 +170,29 @@ class AniListAdapter(SourceAdapter):
                   genres
                   tags { name rank }
                   meanScore
+                  status
+                  season
+                  seasonYear
+                  startDate { year month day }
+                  nextAiringEpisode { episode airingAt }
                   format
                   episodes
                   studios(isMain: true) { nodes { name } }
+                  relations {
+                    edges {
+                      relationType
+                      node {
+                        id
+                        type
+                        format
+                        status
+                        episodes
+                        season
+                        seasonYear
+                        title { romaji english }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -160,6 +215,8 @@ class AniListAdapter(SourceAdapter):
                 studios = media.get("studios", {}).get("nodes", [])
                 if studios:
                     studio = studios[0].get("name")
+                related_ids, relations = _parse_relations(media)
+                next_airing = media.get("nextAiringEpisode") or {}
                 items.append(
                     MediaItem(
                         id=mid,
@@ -173,6 +230,13 @@ class AniListAdapter(SourceAdapter):
                         episodes=media.get("episodes"),
                         studio=studio,
                         mean_score=media.get("meanScore"),
+                        related_ids=related_ids,
+                        season=media.get("season"),
+                        season_year=media.get("seasonYear"),
+                        start_date=_date_string(media.get("startDate")),
+                        next_airing_episode=next_airing.get("episode"),
+                        next_airing_at=next_airing.get("airingAt"),
+                        relations=relations,
                     )
                 )
         return items
@@ -227,9 +291,28 @@ class AniListAdapter(SourceAdapter):
               meanScore
               description(asHtml: false)
               format
+              status
+              season
+              seasonYear
+              startDate { year month day }
               episodes
+              nextAiringEpisode { episode airingAt }
               studios(isMain: true) { nodes { name } }
-              relations { edges { relationType node { id type } } }
+              relations {
+                edges {
+                  relationType
+                  node {
+                    id
+                    type
+                    format
+                    status
+                    episodes
+                    season
+                    seasonYear
+                    title { romaji english }
+                  }
+                }
+              }
             }
           }
         }
@@ -246,16 +329,8 @@ class AniListAdapter(SourceAdapter):
                 desc = m.get("description", "")
                 if desc and len(desc) > 200:
                     desc = desc[:200] + "..."
-                related_ids: list[int] = []
-                for edge in m.get("relations", {}).get("edges", []) or []:
-                    rtype = edge.get("relationType")
-                    node = edge.get("node") or {}
-                    if (
-                        rtype in FRANCHISE_RELATION_TYPES
-                        and node.get("type") == "ANIME"
-                        and node.get("id")
-                    ):
-                        related_ids.append(node["id"])
+                related_ids, relations = _parse_relations(m)
+                next_airing = m.get("nextAiringEpisode") or {}
                 items.append(
                     MediaItem(
                         id=m["id"],
@@ -264,11 +339,18 @@ class AniListAdapter(SourceAdapter):
                         genres=m.get("genres", []),
                         tags=tags,
                         format=m.get("format"),
+                        status=m.get("status"),
                         episodes=m.get("episodes"),
                         studio=studio,
                         description=desc,
                         mean_score=m.get("meanScore"),
                         related_ids=related_ids,
+                        season=m.get("season"),
+                        season_year=m.get("seasonYear"),
+                        start_date=_date_string(m.get("startDate")),
+                        next_airing_episode=next_airing.get("episode"),
+                        next_airing_at=next_airing.get("airingAt"),
+                        relations=relations,
                     )
                 )
             return items
@@ -276,7 +358,7 @@ class AniListAdapter(SourceAdapter):
         def _fetch_page(page: int, genres: list[str] | None = None) -> list[dict]:
             data = self._graphql(
                 base_query,
-                {"excludeIds": exclude_ids, "page": page, "genres": genres or []},
+                {"excludeIds": exclude_ids, "page": page, "genres": genres},
             )
             return data.get("data", {}).get("Page", {}).get("media", [])
 
@@ -289,10 +371,13 @@ class AniListAdapter(SourceAdapter):
             media_list = _fetch_page(page)
             if not media_list:
                 break
+            count_before_page = len(all_candidates)
             for item in _parse_media(media_list):
                 if item.id not in seen_ids:
                     seen_ids.add(item.id)
                     all_candidates.append(item)
+            if len(all_candidates) == count_before_page:
+                break
             page += 1
 
         return all_candidates[:pool_size]
@@ -325,9 +410,28 @@ class AniListAdapter(SourceAdapter):
               meanScore
               description(asHtml: false)
               format
+              status
+              season
+              seasonYear
+              startDate { year month day }
               episodes
+              nextAiringEpisode { episode airingAt }
               studios(isMain: true) { nodes { name } }
-              relations { edges { relationType node { id type } } }
+              relations {
+                edges {
+                  relationType
+                  node {
+                    id
+                    type
+                    format
+                    status
+                    episodes
+                    season
+                    seasonYear
+                    title { romaji english }
+                  }
+                }
+              }
             }
           }
         }
@@ -344,16 +448,8 @@ class AniListAdapter(SourceAdapter):
                 desc = m.get("description", "")
                 if desc and len(desc) > 200:
                     desc = desc[:200] + "..."
-                related_ids: list[int] = []
-                for edge in m.get("relations", {}).get("edges", []) or []:
-                    rtype = edge.get("relationType")
-                    node = edge.get("node") or {}
-                    if (
-                        rtype in FRANCHISE_RELATION_TYPES
-                        and node.get("type") == "ANIME"
-                        and node.get("id")
-                    ):
-                        related_ids.append(node["id"])
+                related_ids, relations = _parse_relations(m)
+                next_airing = m.get("nextAiringEpisode") or {}
                 items.append(
                     MediaItem(
                         id=m["id"],
@@ -362,16 +458,23 @@ class AniListAdapter(SourceAdapter):
                         genres=m.get("genres", []),
                         tags=tags,
                         format=m.get("format"),
+                        status=m.get("status"),
                         episodes=m.get("episodes"),
                         studio=studio,
                         description=desc,
                         mean_score=m.get("meanScore"),
                         related_ids=related_ids,
+                        season=m.get("season"),
+                        season_year=m.get("seasonYear"),
+                        start_date=_date_string(m.get("startDate")),
+                        next_airing_episode=next_airing.get("episode"),
+                        next_airing_at=next_airing.get("airingAt"),
+                        relations=relations,
                     )
                 )
             return items
 
-        def _fetch_page(page: int, genres: list[str]) -> list[dict]:
+        def _fetch_page(page: int, genres: list[str] | None) -> list[dict]:
             data = self._graphql(
                 base_query,
                 {"excludeIds": exclude_ids, "page": page, "genres": genres},
@@ -388,10 +491,13 @@ class AniListAdapter(SourceAdapter):
                 media_list = _fetch_page(page, [genre])
                 if not media_list:
                     break
+                count_before_page = len(all_candidates)
                 for item in _parse_media(media_list):
                     if item.id not in seen_ids:
                         seen_ids.add(item.id)
                         all_candidates.append(item)
+                if len(all_candidates) == count_before_page:
+                    break
                 if len([c for c in all_candidates if genre in c.genres]) >= per_genre:
                     break
 
@@ -400,13 +506,16 @@ class AniListAdapter(SourceAdapter):
             remaining = pool_size - len(all_candidates)
             page = 1
             while len(all_candidates) < pool_size:
-                media_list = _fetch_page(page, [])
+                media_list = _fetch_page(page, None)
                 if not media_list:
                     break
+                count_before_page = len(all_candidates)
                 for item in _parse_media(media_list):
                     if item.id not in seen_ids:
                         seen_ids.add(item.id)
                         all_candidates.append(item)
+                if len(all_candidates) == count_before_page:
+                    break
                 page += 1
                 if page > (remaining // 50) + 3:
                     break
@@ -429,8 +538,28 @@ class AniListAdapter(SourceAdapter):
                   meanScore
                   description(asHtml: false)
                   format
+                  status
+                  season
+                  seasonYear
+                  startDate { year month day }
                   episodes
+                  nextAiringEpisode { episode airingAt }
                   studios(isMain: true) { nodes { name } }
+                  relations {
+                    edges {
+                      relationType
+                      node {
+                        id
+                        type
+                        format
+                        status
+                        episodes
+                        season
+                        seasonYear
+                        title { romaji english }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -453,6 +582,8 @@ class AniListAdapter(SourceAdapter):
                 desc = media.get("description", "")
                 if desc and len(desc) > 200:
                     desc = desc[:200] + "..."
+                related_ids, relations = _parse_relations(media)
+                next_airing = media.get("nextAiringEpisode") or {}
                 items.append(
                     MediaItem(
                         id=media["id"],
@@ -461,10 +592,18 @@ class AniListAdapter(SourceAdapter):
                         genres=media.get("genres", []),
                         tags=tags,
                         format=media.get("format"),
+                        status=media.get("status"),
                         episodes=media.get("episodes"),
                         studio=studio,
                         description=desc,
                         mean_score=media.get("meanScore"),
+                        related_ids=related_ids,
+                        season=media.get("season"),
+                        season_year=media.get("seasonYear"),
+                        start_date=_date_string(media.get("startDate")),
+                        next_airing_episode=next_airing.get("episode"),
+                        next_airing_at=next_airing.get("airingAt"),
+                        relations=relations,
                     )
                 )
         return items
@@ -474,12 +613,14 @@ class AniListAdapter(SourceAdapter):
         exclude_ids = [m.id for m in history if m.id]
 
         use_planning = kwargs.get("use_planning", False)
+        lane = kwargs.get("recommendation_lane", "best_match")
         if use_planning:
             candidates = self._fetch_planning(username)
             watched_ids = {
                 m.id for m in history if m.status in {"CURRENT", "COMPLETED", "DROPPED", "PAUSED"}
             }
             candidates = [c for c in candidates if c.id not in watched_ids]
+            candidates = apply_lane_policy(history, candidates, "plan_list")
         else:
             # Analyze genre affinity from scored history
             preferred_genres = self._analyze_genre_affinity(history)
@@ -489,20 +630,8 @@ class AniListAdapter(SourceAdapter):
                 )
             else:
                 candidates = self._fetch_candidates(exclude_ids, pool_size)
-            # Drop anything that's in the same franchise as a history entry:
-            # (a) AniList id_not_in only catches exact id matches — sequels and
-            # spin-offs have different ids and slip through;
-            # (b) we expanded the GraphQL to fetch each candidate's franchise
-            # relations, so a sequel of a dropped show points back at the
-            # dropped id and we exclude it;
-            # (c) belt-and-suspenders: title-stem dedup catches franchises
-            # AniList's relations metadata doesn't connect.
-            history_ids, history_stems = _build_franchise_block(history)
-            candidates = [
-                c
-                for c in candidates
-                if not _candidate_is_in_franchise(c, history_ids, history_stems)
-            ]
+            candidates = [c for c in candidates if c.id not in exclude_ids]
+            candidates = apply_lane_policy(history, candidates, lane)
         return SourceData(
             username=username,
             history=history,

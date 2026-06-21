@@ -1,13 +1,13 @@
-"""Regression tests for the franchise filter.
+"""Regression tests for AniList franchise metadata and lane policy integration.
 
 Bug discovered 2026-05-28: the candidate pool returned by AniList included
 sequels and spin-offs of dropped or watched shows because AniList's
 ``id_not_in`` only excludes by exact id. The LLM then dutifully scored those
 2/10 with reasoning citing the rule violation, polluting recommendations.
 
-Two filters now run in `fetch()`:
-- relations graph (AniList's own ``relations`` edges)
-- title-stem dedup (belt for sparse relations metadata)
+AniList now parses rich relation metadata and delegates keep/boost/block
+decisions to the lane policy. Dropped/paused/low-rated franchise links still
+block outside plan-list mode, while loved continuations can be boosted.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from omakase.adapters.anilist import (
     _candidate_is_in_franchise,
     _title_stem,
 )
-from omakase.types import MediaItem
+from omakase.types import MediaItem, MediaRelation
 
 # ── _title_stem ─────────────────────────────────────────────────────────
 
@@ -97,6 +97,104 @@ def test_candidate_blocked_via_english_title_stem():
     assert _candidate_is_in_franchise(cand, set(), {"naruto"}) is True
 
 
+# ── AniList metadata parsing ────────────────────────────────────────────
+
+
+def test_anilist_candidates_parse_rich_relation_metadata(monkeypatch):
+    adapter = AniListAdapter()
+
+    def fake_graphql(query, variables):
+        assert "seasonYear" in query
+        assert "nextAiringEpisode" in query
+        assert "relations" in query
+        return {
+            "data": {
+                "Page": {
+                    "media": [
+                        {
+                            "id": 2,
+                            "title": {"romaji": "Base 2", "english": "Base 2"},
+                            "genres": ["Drama"],
+                            "tags": [],
+                            "meanScore": 81,
+                            "description": "desc",
+                            "format": "TV",
+                            "status": "RELEASING",
+                            "season": "SPRING",
+                            "seasonYear": 2026,
+                            "startDate": {"year": 2026, "month": 4, "day": 1},
+                            "episodes": 12,
+                            "nextAiringEpisode": {"episode": 4, "airingAt": 1776200000},
+                            "studios": {"nodes": []},
+                            "relations": {
+                                "edges": [
+                                    {
+                                        "relationType": "PREQUEL",
+                                        "node": {
+                                            "id": 1,
+                                            "type": "ANIME",
+                                            "format": "TV",
+                                            "status": "FINISHED",
+                                            "episodes": 12,
+                                            "season": "WINTER",
+                                            "seasonYear": 2025,
+                                            "title": {"romaji": "Base", "english": "Base"},
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+
+    monkeypatch.setattr(adapter, "_graphql", fake_graphql)
+    item = adapter._fetch_candidates([], 1)[0]
+    assert item.status == "RELEASING"
+    assert item.season == "SPRING"
+    assert item.season_year == 2026
+    assert item.start_date == "2026-04-01"
+    assert item.next_airing_episode == 4
+    assert item.relations[0].media_id == 1
+
+
+def test_anilist_global_candidate_fetch_omits_empty_genre_filter(monkeypatch):
+    adapter = AniListAdapter()
+    seen_genres = []
+
+    def fake_graphql(query, variables):
+        seen_genres.append(variables["genres"])
+        return {
+            "data": {
+                "Page": {
+                    "media": [
+                        {
+                            "id": 2,
+                            "title": {"romaji": "Global Pick", "english": "Global Pick"},
+                            "genres": ["Drama"],
+                            "tags": [],
+                            "meanScore": 81,
+                            "description": "desc",
+                            "format": "TV",
+                            "status": "FINISHED",
+                            "episodes": 12,
+                            "studios": {"nodes": []},
+                            "relations": {"edges": []},
+                        }
+                    ]
+                    if variables["page"] == 1
+                    else []
+                }
+            }
+        }
+
+    monkeypatch.setattr(adapter, "_graphql", fake_graphql)
+    item = adapter._fetch_candidates([], 1)[0]
+    assert item.id == 2
+    assert seen_genres[0] is None
+
+
 # ── fetch() integration ─────────────────────────────────────────────────
 
 
@@ -125,8 +223,8 @@ def test_fetch_drops_sequel_via_relations():
     assert 999 in cand_ids, "unrelated candidate must pass through"
 
 
-def test_fetch_drops_sequel_via_title_stem_when_relations_missing():
-    """If AniList's relations data is sparse, title-stem dedup still catches the sequel."""
+def test_fetch_blocks_dropped_title_stem_but_keeps_unscored_completed_franchise():
+    """Title-stem policy blocks disliked franchises without blanket-dropping neutral ones."""
     adapter = AniListAdapter()
     candidates_in = [
         # No related_ids set — simulates incomplete AniList metadata
@@ -142,7 +240,7 @@ def test_fetch_drops_sequel_via_title_stem_when_relations_missing():
         data = adapter.fetch("anyuser", use_planning=False)
     cand_ids = {c.id for c in data.candidates}
     assert 102 not in cand_ids, "Gintama Season 3 must be dropped by title stem"
-    assert 201 not in cand_ids, "Chainsaw Man movie must be dropped by title stem"
+    assert 201 in cand_ids, "completed but unscored franchise entries are no longer blanket-dropped"
     assert 999 in cand_ids, "Mushoku Tensei is unrelated and must pass"
 
 
@@ -161,3 +259,27 @@ def test_fetch_planning_mode_unaffected_by_franchise_filter():
     cand_ids = {c.id for c in data.candidates}
     # Planning items the user explicitly chose are kept even when same-franchise.
     assert cand_ids == {101, 999}
+
+
+def test_fetch_new_seasons_keeps_loved_continuations(monkeypatch):
+    adapter = AniListAdapter()
+    history = [
+        MediaItem(id=1, title_romaji="Base", title_english="Base", score=9, status="COMPLETED")
+    ]
+    candidates = [
+        MediaItem(
+            id=2,
+            title_romaji="Base 2",
+            title_english="Base 2",
+            status="RELEASING",
+            season_year=2026,
+            relations=[MediaRelation(relation_type="PREQUEL", media_id=1, title_romaji="Base")],
+        )
+    ]
+    monkeypatch.setattr(adapter, "_fetch_history", lambda username: history)
+    monkeypatch.setattr(adapter, "_analyze_genre_affinity", lambda history: ["Drama"])
+    monkeypatch.setattr(
+        adapter, "_fetch_candidates_targeted", lambda exclude_ids, pool_size, genres: candidates
+    )
+    data = adapter.fetch("me", 10, recommendation_lane="new_seasons")
+    assert data.candidates[0].franchise_policy == "boosted"
