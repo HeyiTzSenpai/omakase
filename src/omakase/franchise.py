@@ -18,6 +18,7 @@ _SEASON_TAIL = re.compile(
     r"i{2,}|iv|vi+|ix|x|\d+)$",
     re.IGNORECASE,
 )
+_POLICY_RANK = {"neutral": 0, "boosted": 1, "blocked": 2}
 
 
 def _title_stem(title: str | None) -> str:
@@ -39,7 +40,14 @@ def _title_stem(title: str | None) -> str:
     return s
 
 
-def _history_buckets(history: list[MediaItem]) -> tuple[set[int], set[int], set[int], dict[str, str]]:
+def _store_stem_policy(stems: dict[str, str], stem: str, policy: str) -> None:
+    if _POLICY_RANK[policy] >= _POLICY_RANK.get(stems.get(stem, "neutral"), 0):
+        stems[stem] = policy
+
+
+def _history_buckets(
+    history: list[MediaItem],
+) -> tuple[set[int], set[int], set[int], dict[str, str]]:
     loved: set[int] = set()
     low: set[int] = set()
     neutral: set[int] = set()
@@ -56,15 +64,17 @@ def _history_buckets(history: list[MediaItem]) -> tuple[set[int], set[int], set[
             stem = _title_stem(title)
             if stem:
                 if item.status in LOW_STATUSES or (item.score is not None and item.score <= 5):
-                    stems[stem] = "blocked"
+                    _store_stem_policy(stems, stem, "blocked")
                 elif item.score is not None and item.score >= 8:
-                    stems[stem] = "boosted"
+                    _store_stem_policy(stems, stem, "boosted")
                 elif item.score is not None and 6 <= item.score <= 7:
-                    stems.setdefault(stem, "neutral")
+                    _store_stem_policy(stems, stem, "neutral")
     return loved, low, neutral, stems
 
 
-def _relation_policy(candidate: MediaItem, loved: set[int], low: set[int], neutral: set[int]) -> str:
+def _relation_policy(
+    candidate: MediaItem, loved: set[int], low: set[int], neutral: set[int]
+) -> str:
     related = {rel.media_id for rel in candidate.relations}
     if candidate.id in low or related & low:
         return "blocked"
@@ -138,11 +148,11 @@ def apply_lane_policy(
     lane: str,
 ) -> list[MediaItem]:
     normalized_lane = (
-        lane
-        if lane in {"best_match", "new_seasons", "hidden_gems", "plan_list"}
-        else "best_match"
+        lane if lane in {"best_match", "new_seasons", "hidden_gems", "plan_list"} else "best_match"
     )
     classified = [classify_candidate(candidate, history) for candidate in candidates]
     if normalized_lane != "plan_list":
-        classified = [candidate for candidate in classified if candidate.franchise_policy != "blocked"]
+        classified = [
+            candidate for candidate in classified if candidate.franchise_policy != "blocked"
+        ]
     return sorted(classified, key=lambda item: _lane_sort_key(item, normalized_lane))
