@@ -8,8 +8,11 @@ from dataclasses import replace
 from omakase.types import MediaItem
 
 LOW_STATUSES = {"DROPPED", "PAUSED"}
+SATISFIED_HISTORY_STATUSES = {"COMPLETED", "FINISHED", "REPEATING"}
 LOOSE_RELATIONS = {"SIDE_STORY", "SPIN_OFF", "ALTERNATIVE", "SUMMARY", "COMPILATION", "OTHER"}
 STRICT_RELATIONS = {"PREQUEL", "SEQUEL", "PARENT", "CONTAINS"}
+PREREQUISITE_RELATIONS = {"PREQUEL", "PARENT"}
+LANES = {"best_match", "new_seasons", "hidden_gems", "plan_list", "discover"}
 _PAREN_TAIL = re.compile(r"\s*\([^)]*\)\s*$")
 _SUBTITLE_SEPARATORS = (": ", " - ", " – ", " — ")
 _SEASON_TAIL = re.compile(
@@ -72,6 +75,19 @@ def _history_buckets(
     return loved, low, neutral, stems
 
 
+def _history_item_satisfies_prerequisite(item: MediaItem) -> bool:
+    status = (item.status or "").upper()
+    if status in SATISFIED_HISTORY_STATUSES:
+        return True
+    if status in LOW_STATUSES or status == "PLANNING":
+        return False
+    return item.score is not None
+
+
+def _satisfied_prerequisite_ids(history: list[MediaItem]) -> set[int]:
+    return {item.id for item in history if item.id and _history_item_satisfies_prerequisite(item)}
+
+
 def _relation_policy(
     candidate: MediaItem, loved: set[int], low: set[int], neutral: set[int]
 ) -> str:
@@ -96,11 +112,11 @@ def _stem_policy(candidate: MediaItem, stems: dict[str, str]) -> str | None:
     return max(policies, key=lambda policy: _POLICY_RANK[policy])
 
 
-def _sequence_warning(candidate: MediaItem) -> str:
+def _sequence_warning(candidate: MediaItem, satisfied_ids: set[int]) -> str:
     strict_prequels = [
         rel
         for rel in candidate.relations
-        if rel.relation_type in STRICT_RELATIONS and rel.status != "FINISHED"
+        if rel.relation_type in PREREQUISITE_RELATIONS and rel.media_id not in satisfied_ids
     ]
     if strict_prequels:
         title = strict_prequels[0].title_english or strict_prequels[0].title_romaji
@@ -110,6 +126,7 @@ def _sequence_warning(candidate: MediaItem) -> str:
 
 def classify_candidate(candidate: MediaItem, history: list[MediaItem]) -> MediaItem:
     loved, low, neutral, stems = _history_buckets(history)
+    satisfied_ids = _satisfied_prerequisite_ids(history)
     policy = _relation_policy(candidate, loved, low, neutral)
     stem_policy = _stem_policy(candidate, stems)
     if stem_policy == "blocked":
@@ -127,22 +144,19 @@ def classify_candidate(candidate: MediaItem, history: list[MediaItem]) -> MediaI
         candidate,
         franchise_policy=policy,
         franchise_note=note,
-        sequence_warning=_sequence_warning(candidate),
+        sequence_warning=_sequence_warning(candidate, satisfied_ids),
         loose_order=loose,
     )
 
 
 def _lane_sort_key(item: MediaItem, lane: str) -> tuple:
-    boosted = item.franchise_policy == "boosted"
-    finished = item.status == "FINISHED"
-    releasing = item.status == "RELEASING"
-    year = item.season_year or 0
-    score = item.mean_score or 0
-    if lane == "new_seasons":
-        return (not boosted, not releasing, -year, -score)
+    if item.franchise_policy == "blocked":
+        return (3,)
+    if item.sequence_warning:
+        return (2,)
     if lane == "hidden_gems":
-        return (boosted, -score, year)
-    return (not boosted, not finished, releasing, -score)
+        return (1 if item.franchise_policy == "boosted" else 0,)
+    return (0 if item.franchise_policy == "boosted" else 1,)
 
 
 def apply_lane_policy(
@@ -150,12 +164,16 @@ def apply_lane_policy(
     candidates: list[MediaItem],
     lane: str,
 ) -> list[MediaItem]:
-    normalized_lane = (
-        lane if lane in {"best_match", "new_seasons", "hidden_gems", "plan_list"} else "best_match"
-    )
+    normalized_lane = lane if lane in LANES else "best_match"
     classified = [classify_candidate(candidate, history) for candidate in candidates]
-    if normalized_lane != "plan_list":
+    if normalized_lane == "discover":
         classified = [
             candidate for candidate in classified if candidate.franchise_policy != "blocked"
+        ]
+    elif normalized_lane != "plan_list":
+        classified = [
+            candidate
+            for candidate in classified
+            if candidate.franchise_policy != "blocked" and not candidate.sequence_warning
         ]
     return sorted(classified, key=lambda item: _lane_sort_key(item, normalized_lane))

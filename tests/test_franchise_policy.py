@@ -9,7 +9,14 @@ def hist(media_id, title, score=None, status="COMPLETED"):
 
 
 def cand(
-    media_id, title, relation_type="SEQUEL", related_id=1, status="FINISHED", season_year=2026
+    media_id,
+    title,
+    relation_type="SEQUEL",
+    related_id=1,
+    status="FINISHED",
+    season_year=2026,
+    relation_status=None,
+    relation_title="Base",
 ):
     return MediaItem(
         id=media_id,
@@ -19,7 +26,12 @@ def cand(
         season_year=season_year,
         mean_score=82,
         relations=[
-            MediaRelation(relation_type=relation_type, media_id=related_id, title_romaji="Base")
+            MediaRelation(
+                relation_type=relation_type,
+                media_id=related_id,
+                title_romaji=relation_title,
+                status=relation_status,
+            )
         ],
     )
 
@@ -68,6 +80,103 @@ def test_new_seasons_orders_boosted_recent_before_unrelated_finished():
     assert result[0].id == 2
 
 
+def test_discover_boosts_loose_franchise_entries_and_penalizes_missing_context():
+    side_story = cand(2, "Base Side Story", relation_type="SIDE_STORY", related_id=1)
+    neutral = MediaItem(
+        id=3,
+        title_romaji="Original One",
+        title_english="Original One",
+        status="FINISHED",
+        mean_score=70,
+    )
+    missing_prequel = cand(
+        4,
+        "Unknown Continuation",
+        relation_type="PREQUEL",
+        related_id=99,
+        relation_status="FINISHED",
+        relation_title="Unknown Season 1",
+    )
+
+    result = apply_lane_policy(
+        [hist(1, "Base", score=9)],
+        [missing_prequel, neutral, side_story],
+        "discover",
+    )
+
+    assert [item.id for item in result] == [2, 3, 4]
+    assert result[0].franchise_policy == "boosted"
+    assert result[0].loose_order is True
+    assert "Unknown Season 1" in result[-1].sequence_warning
+
+
+def test_best_match_blocks_finished_prerequisite_absent_from_history():
+    result = apply_lane_policy(
+        [hist(10, "Different Show", score=9)],
+        [
+            cand(
+                2,
+                "Base 2",
+                relation_type="PREQUEL",
+                related_id=1,
+                relation_status="FINISHED",
+            )
+        ],
+        "best_match",
+    )
+
+    assert result == []
+
+
+def test_plan_list_keeps_neutral_before_finished_but_missing_prerequisite():
+    missing_prequel = cand(
+        2,
+        "Base 2",
+        relation_type="PREQUEL",
+        related_id=1,
+        relation_status="FINISHED",
+    )
+    unrelated = MediaItem(
+        id=3,
+        title_romaji="Unrelated",
+        title_english="Unrelated",
+        status="FINISHED",
+        mean_score=40,
+    )
+
+    result = apply_lane_policy(
+        [hist(10, "Different Show", score=9)],
+        [missing_prequel, unrelated],
+        "plan_list",
+    )
+
+    assert [item.id for item in result] == [3, 2]
+    assert "Base" in result[1].sequence_warning
+
+
+def test_neutral_candidates_preserve_source_order():
+    releasing = MediaItem(
+        id=2,
+        title_romaji="First Source Candidate",
+        title_english="First Source Candidate",
+        status="RELEASING",
+        season_year=2026,
+        mean_score=65,
+    )
+    finished = MediaItem(
+        id=3,
+        title_romaji="Second Source Candidate",
+        title_english="Second Source Candidate",
+        status="FINISHED",
+        season_year=2010,
+        mean_score=95,
+    )
+
+    result = apply_lane_policy([], [releasing, finished], "best_match")
+
+    assert [item.id for item in result] == [2, 3]
+
+
 def test_blocked_stem_wins_over_loved_stem_regardless_of_history_order():
     low_first = [
         hist(1, "Base", score=4),
@@ -94,19 +203,22 @@ def test_blocked_stem_wins_across_candidate_english_and_romaji_titles():
     assert result[0].franchise_policy == "blocked"
 
 
-def test_strict_unfinished_relation_gets_sequence_warning():
+def test_strict_missing_relation_gets_sequence_warning():
     result = apply_lane_policy(
         [hist(1, "Base", score=9)],
-        [cand(2, "Base 2", relation_type="SEQUEL", related_id=1, status="FINISHED")],
-        "best_match",
+        [cand(2, "Base 2", relation_type="PREQUEL", related_id=99, status="FINISHED")],
+        "plan_list",
     )
     assert "Sequencing check" in result[0].sequence_warning
 
 
-def test_strict_finished_relation_has_no_sequence_warning():
-    candidate = cand(2, "Base 2")
-    candidate.relations[0].status = "FINISHED"
-    result = apply_lane_policy([hist(1, "Base", score=9)], [candidate], "best_match")
+def test_strict_relation_in_completed_history_has_no_sequence_warning():
+    candidate = cand(2, "Base 2", relation_type="PREQUEL", related_id=1)
+    result = apply_lane_policy(
+        [hist(1, "Base", score=9, status="COMPLETED")],
+        [candidate],
+        "best_match",
+    )
     assert result[0].sequence_warning == ""
 
 
@@ -122,6 +234,6 @@ def test_loose_relation_does_not_suppress_unfinished_strict_sequence_warning():
     candidate.relations.append(
         MediaRelation(relation_type="PREQUEL", media_id=99, title_romaji="Missing Base")
     )
-    result = apply_lane_policy([hist(1, "Base", score=9)], [candidate], "best_match")
+    result = apply_lane_policy([hist(1, "Base", score=9)], [candidate], "discover")
     assert result[0].loose_order is True
     assert "Sequencing check" in result[0].sequence_warning
