@@ -67,8 +67,8 @@ def _parse_pubdate(date_str: str) -> datetime:
 
 
 _BATCH_PATTERNS = [
-    re.compile(r"\b(complete|batch|all.episodes?|s\d{2})\b", re.IGNORECASE),
-    re.compile(r"\bseason\s*\d\b", re.IGNORECASE),
+    re.compile(r"\b(complete|batch)\b", re.IGNORECASE),
+    re.compile(r"\ball[\s._-]?episodes?\b", re.IGNORECASE),
     re.compile(r"\b\d{2,3}-\d{2,3}\b"),  # episode ranges like 01-12
 ]
 
@@ -78,6 +78,14 @@ _REJECT_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(r"\bsample\b", re.IGNORECASE),
+    re.compile(r"\b(n[\s._-]?c[\s._-]?op|n[\s._-]?c[\s._-]?ed)\b", re.IGNORECASE),
+    re.compile(r"\b(pv|trailer|cm|ost)\b", re.IGNORECASE),
+    re.compile(r"\b(op|ed)[\s._-]?\d*\b", re.IGNORECASE),
+    re.compile(
+        r"\b(creditless|clean[\s._-]?(opening|ending)|non[\s._-]?credit)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(music[\s._-]?video|video[\s._-]?extras?)\b", re.IGNORECASE),
 ]
 
 _SOURCE_SCORES = [
@@ -102,6 +110,45 @@ _KNOWN_HIGH_QUALITY_GROUPS = (
 )
 
 _RAW_PATTERN = re.compile(r"\braws?\b", re.IGNORECASE)
+_TITLE_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "batch",
+    "complete",
+    "movie",
+    "of",
+    "on",
+    "ova",
+    "part",
+    "season",
+    "special",
+    "the",
+    "to",
+}
+_RELEASE_NOISE_TOKENS = {
+    "aac",
+    "bd",
+    "bdmv",
+    "bdrip",
+    "bdremux",
+    "bluray",
+    "dub",
+    "dubbed",
+    "flac",
+    "hevc",
+    "multi",
+    "remux",
+    "sub",
+    "subbed",
+    "subs",
+    "truehd",
+    "uhd",
+    "web",
+    "webrip",
+    "x264",
+    "x265",
+}
 
 
 def _is_likely_batch(title: str) -> bool:
@@ -112,6 +159,26 @@ def _is_likely_batch(title: str) -> bool:
 def _is_rejected_quality(title: str) -> bool:
     """Return True for releases that should never be auto-downloaded."""
     return any(p.search(title) for p in _REJECT_PATTERNS)
+
+
+def _is_unreasonable_size(torrent: NyaaTorrent) -> bool:
+    gib = 1024**3
+    size = torrent.size_bytes
+    title = torrent.title
+
+    if size >= 150 * gib:
+        return True
+    if size >= 120 * gib and re.search(
+        r"\b(collection|all[\s._-]?seasons?|franchise|complete[\s._-]?series)\b",
+        title,
+        re.IGNORECASE,
+    ):
+        return True
+    return False
+
+
+def _is_rejected_torrent(torrent: NyaaTorrent) -> bool:
+    return _is_rejected_quality(torrent.title) or _is_unreasonable_size(torrent)
 
 
 def _resolution_score(title: str) -> int:
@@ -166,6 +233,10 @@ def _size_score(torrent: NyaaTorrent) -> int:
         return -70
     if size < 700 * mib:
         return -25
+    if size >= 80 * gib:
+        return -120
+    if size >= 50 * gib:
+        return -45
     if torrent.is_batch and size >= 20 * gib:
         return 35
     if size >= 4 * gib:
@@ -182,6 +253,46 @@ def _has_known_high_quality_group(title: str) -> bool:
         if re.search(pattern, normalized_title):
             return True
     return False
+
+
+def _title_tokens(title: str) -> set[str]:
+    stripped = re.sub(r"\[[^\]]+\]", " ", title.lower())
+    stripped = re.sub(r"\([^)]*\)", " ", stripped)
+    tokens = set(re.findall(r"[a-z0-9]+", stripped))
+    return {
+        token
+        for token in tokens
+        if len(token) >= 2
+        and not token.isdigit()
+        and not re.fullmatch(r"\d{3,4}p", token)
+        and not re.fullmatch(r"s\d{1,2}", token)
+        and token not in _TITLE_STOPWORDS
+        and token not in _RELEASE_NOISE_TOKENS
+    }
+
+
+def _title_match_score(candidate_title: str, expected_title: str | None) -> float:
+    if not expected_title:
+        return 1.0
+
+    expected_tokens = _title_tokens(expected_title)
+    if not expected_tokens:
+        return 1.0
+
+    candidate_tokens = _title_tokens(candidate_title)
+    overlap = expected_tokens & candidate_tokens
+    if not overlap:
+        return 0.0
+
+    candidate_text = " ".join(re.findall(r"[a-z0-9]+", candidate_title.lower()))
+    expected_text = " ".join(re.findall(r"[a-z0-9]+", expected_title.lower()))
+    if expected_text and expected_text in candidate_text:
+        return 1.0
+
+    ratio = len(overlap) / len(expected_tokens)
+    if any(len(token) >= 7 for token in overlap):
+        return max(ratio, 0.75)
+    return ratio
 
 
 def _quality_score(
@@ -309,6 +420,7 @@ async def search(
 def find_best(
     torrents: list[NyaaTorrent],
     *,
+    expected_title: str | None = None,
     prefer_trusted: bool = True,
     prefer_no_batch: bool = False,
     min_seeders: int = 1,
@@ -317,6 +429,7 @@ def find_best(
 
     Heuristic:
     - Reject CAM/sample-style releases outright.
+    - Reject extras, unreasonable huge dumps, and poor expected-title matches.
     - Prefer high-quality resolutions and sources (2160p/1080p, BluRay/BDRip/Web-DL).
     - Prefer trusted/known high-quality uploaders, adequate seeders, and sane file sizes.
     - Prefer complete batches by default because Plus downloads title-level recommendations.
@@ -327,7 +440,11 @@ def find_best(
         return None
 
     candidates = [
-        t for t in torrents if t.seeders >= min_seeders and not _is_rejected_quality(t.title)
+        t
+        for t in torrents
+        if t.seeders >= min_seeders
+        and not _is_rejected_torrent(t)
+        and _title_match_score(t.title, expected_title) >= 0.6
     ]
     if not candidates:
         return None

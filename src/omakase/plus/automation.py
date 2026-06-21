@@ -32,7 +32,7 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
     if not results:
         return {"status": "not_found", "detail": f'No torrents found for "{title}" on nyaa.si'}
 
-    best = find_best(results)
+    best = find_best(results, expected_title=title)
     if best is None:
         return {"status": "not_found", "detail": f'No seedable torrents found for "{title}"'}
 
@@ -43,7 +43,19 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
         return {"status": "rd_error", "detail": "Real-Debrid rejected the magnet link"}
 
     # 4. Select all files to start download
-    await client.select_files(rd_id)
+    files_selected = await client.select_files(rd_id)
+    if not files_selected:
+        delete_torrent = getattr(client, "delete_torrent", None)
+        if delete_torrent is not None:
+            try:
+                await delete_torrent(rd_id)
+            except Exception:
+                pass
+        return {
+            "status": "rd_error",
+            "detail": "Real-Debrid failed to select files for download",
+            "rd_id": rd_id,
+        }
 
     return {
         "status": "ok",

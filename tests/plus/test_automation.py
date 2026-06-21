@@ -103,3 +103,94 @@ def test_search_and_download_uses_title_level_batch_preference():
     assert result["magnet"] == batch.magnet
     assert result["torrent_title"] == batch.title
     assert result["size"] == batch.size_display
+
+
+def test_search_and_download_rejects_wrong_title_result():
+    """Wrong-title search results should not be handed to Real-Debrid."""
+    from omakase.plus.automation import search_and_download
+
+    wrong_title = NyaaTorrent(
+        title="[Trusted] Dungeon Meshi - 01-24 Complete [2160p][BluRay]",
+        magnet="magnet:?xt=urn:btih:WRONG",
+        seeders=500,
+        leechers=5,
+        size_bytes=55_000_000_000,
+        size_display="51.2 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=True,
+    )
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            raise AssertionError(f"wrong-title magnet should not be added: {magnet}")
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        assert title == "Frieren"
+        assert trusted_only is False
+        return [wrong_title]
+
+    with (
+        patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+        patch("omakase.plus.automation.search", side_effect=fake_search),
+        patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+    ):
+        result = asyncio.run(search_and_download(db=None, user_id=1, title="Frieren"))
+
+    assert result["status"] == "not_found"
+
+
+def test_search_and_download_reports_select_files_failure_and_cleans_up():
+    """If RD accepts the magnet but cannot select files, report an error."""
+    from omakase.plus.automation import search_and_download
+
+    torrent = NyaaTorrent(
+        title="[SubsPlease] Frieren - 01-28 Complete [1080p][WEB-DL][AAC]",
+        magnet="magnet:?xt=urn:btih:BATCH",
+        seeders=80,
+        leechers=5,
+        size_bytes=28_000_000_000,
+        size_display="26.1 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=False,
+        is_batch=True,
+    )
+    calls = {"deleted": False}
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            assert magnet == torrent.magnet
+            return "rd-unselectable"
+
+        async def select_files(self, torrent_id: str, files: str = "all") -> bool:
+            assert torrent_id == "rd-unselectable"
+            assert files == "all"
+            return False
+
+        async def delete_torrent(self, torrent_id: str) -> bool:
+            assert torrent_id == "rd-unselectable"
+            calls["deleted"] = True
+            return True
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        assert title == "Frieren"
+        assert trusted_only is False
+        return [torrent]
+
+    with (
+        patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+        patch("omakase.plus.automation.search", side_effect=fake_search),
+        patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+    ):
+        result = asyncio.run(search_and_download(db=None, user_id=1, title="Frieren"))
+
+    assert result["status"] == "rd_error"
+    assert result["rd_id"] == "rd-unselectable"
+    assert "select files" in result["detail"]
+    assert calls["deleted"] is True

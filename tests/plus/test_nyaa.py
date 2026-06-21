@@ -99,6 +99,12 @@ class TestIsLikelyBatch:
     def test_season_keyword(self):
         assert _is_likely_batch("Attack on Titan Season 1 Complete") is True
 
+    def test_season_with_single_episode_marker_is_not_batch(self):
+        assert _is_likely_batch("Show Season 2 - 01 [1080p]") is False
+
+    def test_season_code_with_single_episode_marker_is_not_batch(self):
+        assert _is_likely_batch("Show S01 - 01 [1080p]") is False
+
     def test_single_episode_is_not_batch(self):
         assert _is_likely_batch("[SubsPlease] Dungeon Meshi - 01 (1080p)") is False
 
@@ -237,5 +243,90 @@ class TestFindBest:
         cam = self._make_torrent("[FastSeeder] The Anime Movie 1080p HDCAM", 300)
 
         best = find_best([cam])
+
+        assert best is None
+
+    def test_title_match_beats_wrong_title_quality(self):
+        wrong_title = self._make_torrent(
+            "[Trusted] Dungeon Meshi - 01-24 Complete [2160p][BluRay]",
+            500,
+            trusted=True,
+            batch=True,
+            size_bytes=55_000_000_000,
+            size_display="51.2 GiB",
+        )
+        correct_title = self._make_torrent(
+            "[GoodGroup] Frieren - 01 [720p]",
+            20,
+            size_bytes=800_000_000,
+            size_display="762.9 MiB",
+        )
+
+        best = find_best([wrong_title, correct_title], expected_title="Frieren")
+
+        assert best is correct_title
+
+    def test_title_gate_returns_none_when_no_result_matches_expected_title(self):
+        wrong_title = self._make_torrent(
+            "[Trusted] Dungeon Meshi - 01-24 Complete [2160p][BluRay]",
+            500,
+            trusted=True,
+            batch=True,
+            size_bytes=55_000_000_000,
+            size_display="51.2 GiB",
+        )
+
+        best = find_best([wrong_title], expected_title="Frieren")
+
+        assert best is None
+
+    def test_rejects_common_extra_releases(self):
+        extra_titles = [
+            "[Group] Frieren NCOP [1080p]",
+            "[Group] Frieren NCED [1080p]",
+            "[Group] Frieren PV [1080p]",
+            "[Group] Frieren Trailer [1080p]",
+            "[Group] Frieren CM [1080p]",
+            "[Group] Frieren OST [FLAC]",
+            "[Group] Frieren OP [1080p]",
+            "[Group] Frieren ED-only [1080p]",
+            "[Group] Frieren Creditless Opening [1080p]",
+            "[Group] Frieren Music Video [1080p]",
+        ]
+
+        for title in extra_titles:
+            torrent = self._make_torrent(title, 100)
+            assert find_best([torrent], expected_title="Frieren") is None
+
+    def test_rejects_enormous_remux_dump_when_reasonable_complete_release_exists(self):
+        dump = self._make_torrent(
+            "[BigDump] Frieren Complete BDMV BDRemux Collection [2160p]",
+            300,
+            batch=True,
+            size_bytes=420 * 1024**3,
+            size_display="420.0 GiB",
+        )
+        reasonable = self._make_torrent(
+            "[SubsPlease] Frieren - 01-28 Complete [1080p][WEB-DL]",
+            80,
+            batch=True,
+            size_bytes=28_000_000_000,
+            size_display="26.1 GiB",
+        )
+
+        best = find_best([dump, reasonable], expected_title="Frieren")
+
+        assert best is reasonable
+
+    def test_rejects_enormous_remux_dump_without_reasonable_alternative(self):
+        dump = self._make_torrent(
+            "[BigDump] Frieren Complete BDMV BDRemux Collection [2160p]",
+            300,
+            batch=True,
+            size_bytes=420 * 1024**3,
+            size_display="420.0 GiB",
+        )
+
+        best = find_best([dump], expected_title="Frieren")
 
         assert best is None
