@@ -32,7 +32,7 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
     if not results:
         return {"status": "not_found", "detail": f'No torrents found for "{title}" on nyaa.si'}
 
-    best = find_best(results, prefer_trusted=True, prefer_no_batch=True)
+    best = find_best(results)
     if best is None:
         return {"status": "not_found", "detail": f'No seedable torrents found for "{title}"'}
 
