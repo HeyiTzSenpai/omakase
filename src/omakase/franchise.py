@@ -86,11 +86,14 @@ def _relation_policy(
 
 
 def _stem_policy(candidate: MediaItem, stems: dict[str, str]) -> str | None:
+    policies: list[str] = []
     for title in (candidate.title_english, candidate.title_romaji):
         stem = _title_stem(title)
         if stem and stem in stems:
-            return stems[stem]
-    return None
+            policies.append(stems[stem])
+    if not policies:
+        return None
+    return max(policies, key=lambda policy: _POLICY_RANK[policy])
 
 
 def _sequence_warning(candidate: MediaItem) -> str:

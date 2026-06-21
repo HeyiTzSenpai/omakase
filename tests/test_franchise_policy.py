@@ -80,6 +80,20 @@ def test_blocked_stem_wins_over_loved_stem_regardless_of_history_order():
     assert apply_lane_policy(loved_first, [candidate], "plan_list")[0].franchise_policy == "blocked"
 
 
+def test_blocked_stem_wins_across_candidate_english_and_romaji_titles():
+    history = [
+        hist(1, "Loved Base", score=9),
+        hist(2, "Blocked Base", score=4),
+    ]
+    candidate = MediaItem(
+        id=3,
+        title_romaji="Blocked Base Season 2",
+        title_english="Loved Base Season 2",
+    )
+    result = apply_lane_policy(history, [candidate], "plan_list")
+    assert result[0].franchise_policy == "blocked"
+
+
 def test_strict_unfinished_relation_gets_sequence_warning():
     result = apply_lane_policy(
         [hist(1, "Base", score=9)],
