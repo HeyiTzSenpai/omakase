@@ -115,3 +115,13 @@ def test_loose_order_relation_suppresses_sequence_warning():
     result = apply_lane_policy([hist(1, "Base", score=9)], [candidate], "best_match")
     assert result[0].loose_order is True
     assert result[0].sequence_warning == ""
+
+
+def test_loose_relation_does_not_suppress_unfinished_strict_sequence_warning():
+    candidate = cand(2, "Base Side Story", relation_type="SIDE_STORY", related_id=1)
+    candidate.relations.append(
+        MediaRelation(relation_type="PREQUEL", media_id=99, title_romaji="Missing Base")
+    )
+    result = apply_lane_policy([hist(1, "Base", score=9)], [candidate], "best_match")
+    assert result[0].loose_order is True
+    assert "Sequencing check" in result[0].sequence_warning

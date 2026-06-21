@@ -127,7 +127,7 @@ def classify_candidate(candidate: MediaItem, history: list[MediaItem]) -> MediaI
         candidate,
         franchise_policy=policy,
         franchise_note=note,
-        sequence_warning="" if loose else _sequence_warning(candidate),
+        sequence_warning=_sequence_warning(candidate),
         loose_order=loose,
     )
 
