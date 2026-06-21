@@ -182,6 +182,7 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
         cfg.candidate_pool_size,
         use_planning=cfg.use_planning,
         export_data=cfg.export_data,
+        recommendation_lane=cfg.recommendation_lane,
     )
 
     if not data.history:
@@ -227,7 +228,12 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
     # 3. Build prompt
     print(f"  [3/5] Building prompt for {cfg.model}...")
     prompt = build_prompt(
-        taste_profile, data.history, data.candidates, n_recs=cfg.num_recommendations
+        taste_profile,
+        data.history,
+        data.candidates,
+        n_recs=cfg.num_recommendations,
+        lane=cfg.recommendation_lane,
+        feedback=cfg.feedback,
     )
     print(f"        Prompt: ~{len(prompt.split())} tokens")
 

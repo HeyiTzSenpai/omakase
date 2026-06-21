@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from omakase.types import MediaItem
+from omakase.types import MediaItem, RecommendationFeedbackSignal
 
 DROPPED_STATUSES = {"DROPPED", "PAUSED"}
+
+LANE_LABELS = {
+    "best_match": "Best Match",
+    "new_seasons": "New Seasons",
+    "hidden_gems": "Hidden Gems",
+    "plan_list": "Plan List",
+}
 
 
 def _format_history(items: list[MediaItem]) -> str:
@@ -79,7 +86,33 @@ def _format_candidates(items: list[MediaItem]) -> str:
             lines.append(f"     Tags: {tag_str}")
         if desc:
             lines.append(f"     About: {desc[:150]}")
+        airing = _airing_line(m)
+        if airing:
+            lines.append(f"     Status: {airing}")
+        if m.franchise_note:
+            lines.append(f"     Franchise: {m.franchise_note}")
+        if m.sequence_warning:
+            lines.append(f"     Sequence: {m.sequence_warning}")
     return "\n".join(lines)
+
+
+def _format_feedback(items: list[RecommendationFeedbackSignal]) -> str:
+    if not items:
+        return "No local feedback yet."
+    lines = []
+    for item in items[-20:]:
+        lines.append(f"  - {item.feedback_type}: {item.title}")
+    return "\n".join(lines)
+
+
+def _airing_line(item: MediaItem) -> str:
+    if item.status == "RELEASING":
+        if item.next_airing_episode:
+            return f"Airing: episode {item.next_airing_episode} released/next"
+        return "Airing"
+    if item.status == "FINISHED":
+        return "Finished"
+    return item.status or ""
 
 
 def build_prompt(
@@ -87,6 +120,8 @@ def build_prompt(
     history: list[MediaItem],
     candidates: list[MediaItem],
     n_recs: int = 10,
+    lane: str = "best_match",
+    feedback: list[RecommendationFeedbackSignal] | None = None,
 ) -> str:
     """Assemble the full LLM prompt.
 
@@ -123,6 +158,12 @@ The user did not provide a written profile. Their taste must be inferred *entire
 
 {profile_section}
 
+# RECOMMENDATION LANE: {LANE_LABELS.get(lane, "Best Match")}
+Use the selected lane to decide tie-breakers. Best Match balances profile fit and franchise continuity. New Seasons strongly considers sensible continuations from loved franchises. Hidden Gems favors less obvious older or lower-visibility picks. Plan List treats the user's planning list as the candidate pool and warns about franchise risk instead of silently dropping picks.
+
+# LOCAL FEEDBACK
+{_format_feedback(feedback or [])}
+
 # USER RATING HISTORY ({len(history)} titles)
 Every anime this user has scored or interacted with. The scores are their honest ratings.
 {_format_history(history)}
@@ -144,7 +185,9 @@ For each recommendation provide:
 
 # STRICT RULES
 - Do NOT recommend any anime the user has already seen or that appears in their history
-- Do NOT recommend continuations, sequels, second seasons, or spin-offs of anything in the user's history
+- Do NOT recommend sequels, side stories, movies, OVAs, specials, or spin-offs tied to low-rated, DROPPED, or PAUSED history unless you explicitly explain why the later entry is structurally different.
+- Prefer sensible next missing entries in loved franchises when they appear in the candidate pool.
+- Label airing shows in the reasoning when airing status affects the pick.
 - Do NOT recommend anything in the "DROPPED OR PAUSED" section
 - Do NOT recommend anime that share an exact title match with anything in the user's history (watch for sequel series)
 - Only recommend from the candidate pool — do not invent titles
@@ -152,6 +195,6 @@ For each recommendation provide:
 
 # OUTPUT FORMAT (strict JSON only — no prose, no markdown, no code fences)
 {{"recommendations": [
-  {{"title": "...", "predicted_score": 0, "reasoning": "...", "best_match_from_history": "..."}}
+  {{"title": "...", "predicted_score": 0, "reasoning": "...", "best_match_from_history": "...", "anilist_id": 0, "airing_status": "...", "franchise_note": "...", "sequence_warning": "...", "lane_reason": "..."}}
 ]}}"""
     return prompt

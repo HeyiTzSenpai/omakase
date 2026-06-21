@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from omakase.engine import LLMOutputParseError, _parse_recommendations, _resolve_rec_urls
-from omakase.types import MediaItem, Recommendation
+from omakase.engine import LLMOutputParseError, _parse_recommendations, _resolve_rec_urls, run
+from omakase.types import (
+    MediaItem,
+    OmakaseConfig,
+    Recommendation,
+    RecommendationFeedbackSignal,
+    SourceData,
+)
 
 SAMPLE_JSON = """
 {"recommendations": [
@@ -90,6 +96,79 @@ def test_parse_recommendation_optional_intelligence_fields():
     assert rec.franchise_note == "Loved franchise continuation"
     assert rec.sequence_warning == "Start with season 1"
     assert rec.lane_reason == "new season"
+
+
+def test_run_passes_lane_and_feedback_to_adapter_and_prompt(monkeypatch):
+    calls = {}
+    history = [MediaItem(id=1, title_romaji="Loved", title_english="Loved", score=9)]
+    candidates = [MediaItem(id=2, title_romaji="Candidate", title_english="Candidate")]
+    feedback = [
+        RecommendationFeedbackSignal(media_id=2, title="Candidate", feedback_type="interested")
+    ]
+
+    class FakeAdapter:
+        def fetch(self, username, pool_size=100, **kwargs):
+            calls["fetch"] = {
+                "username": username,
+                "pool_size": pool_size,
+                "kwargs": kwargs,
+            }
+            return SourceData(
+                username=username,
+                history=history,
+                candidates=candidates,
+                source_name="anilist",
+            )
+
+    class FakeLLM:
+        def generate(self, prompt, **kwargs):
+            calls["generate"] = {"prompt": prompt, "kwargs": kwargs}
+            return (
+                '{"recommendations":[{"title":"Candidate","predicted_score":8,'
+                '"reasoning":"because","best_match_from_history":"Loved"}]}'
+            )
+
+    def fake_build_prompt(
+        taste_profile,
+        prompt_history,
+        prompt_candidates,
+        n_recs=10,
+        lane=None,
+        feedback=None,
+    ):
+        calls["prompt"] = {
+            "taste_profile": taste_profile,
+            "history": prompt_history,
+            "candidates": prompt_candidates,
+            "n_recs": n_recs,
+            "lane": lane,
+            "feedback": feedback,
+        }
+        return "prompt text"
+
+    monkeypatch.setattr("omakase.engine.get_adapter", lambda source: FakeAdapter())
+    monkeypatch.setattr("omakase.engine.get_llm", lambda llm_type, llm_url, model: FakeLLM())
+    monkeypatch.setattr("omakase.engine.build_prompt", fake_build_prompt)
+
+    cfg = OmakaseConfig(
+        source="anilist",
+        username="tester",
+        llm_url="http://llm",
+        model="model",
+        profile_path="",
+        num_recommendations=1,
+        recommendation_lane="new_seasons",
+        feedback=feedback,
+    )
+
+    recs = run(cfg)
+
+    assert calls["fetch"]["kwargs"]["recommendation_lane"] == "new_seasons"
+    assert calls["prompt"]["lane"] == "new_seasons"
+    assert calls["prompt"]["feedback"] is feedback
+    assert calls["prompt"]["n_recs"] == 1
+    assert calls["generate"]["prompt"] == "prompt text"
+    assert recs[0].media_id == 2
 
 
 def _rec(title: str) -> Recommendation:

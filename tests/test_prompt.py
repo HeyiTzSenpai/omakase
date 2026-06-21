@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from omakase.prompt import build_prompt
-from omakase.types import MediaItem
+from omakase.types import MediaItem, RecommendationFeedbackSignal
 
 
 def _media(title, score=None, status="COMPLETED", genres=None, mid=1):
@@ -110,3 +110,35 @@ def test_prompt_with_profile_keeps_written_profile_framing():
     assert "THE USER'S OWN TASTE PROFILE" in prompt
     assert "NO WRITTEN TASTE PROFILE" not in prompt
     assert "written taste profile" in prompt
+
+
+def test_prompt_includes_lane_policy_airing_and_feedback():
+    prompt = build_prompt(
+        "I like tender melancholy.",
+        [MediaItem(id=1, title_romaji="Base", title_english="Base", score=9, status="COMPLETED")],
+        [
+            MediaItem(
+                id=2,
+                title_romaji="Base 2",
+                title_english="Base 2",
+                status="RELEASING",
+                season_year=2026,
+                next_airing_episode=4,
+                franchise_policy="boosted",
+                franchise_note="Loved franchise continuation.",
+                sequence_warning="Sequencing check: verify earlier entry first.",
+            )
+        ],
+        n_recs=1,
+        lane="new_seasons",
+        feedback=[
+            RecommendationFeedbackSignal(media_id=2, title="Base 2", feedback_type="interested")
+        ],
+    )
+    assert "# RECOMMENDATION LANE: New Seasons" in prompt
+    assert "Airing: episode 4 released/next" in prompt
+    assert "Loved franchise continuation." in prompt
+    assert "interested: Base 2" in prompt
+    assert '"airing_status"' in prompt
+    assert '"franchise_note"' in prompt
+    assert '"lane_reason"' in prompt
