@@ -15,6 +15,7 @@ from collections import defaultdict
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Depends, Form, Request, Response
@@ -54,6 +55,7 @@ router = APIRouter(prefix="/plus")
 _login_attempts: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT = 5
 _RATE_WINDOW = 60  # seconds
+_MAX_DOWNLOAD_DETAIL_CHARS = 240
 
 # ── Background recommendation jobs ──────────────────────────
 # A run can take 1-2 minutes (Pro mode / reasoning models). Calling the
@@ -100,6 +102,13 @@ def _signup_allowed() -> bool:
     private = os.getenv("OMAKASE_PLUS_PRIVATE", "false").lower() == "true"
     invite = bool(os.getenv("OMAKASE_PLUS_INVITE"))
     return private or invite
+
+
+def _clean_download_detail(value: object) -> str:
+    detail = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(detail) > _MAX_DOWNLOAD_DETAIL_CHARS:
+        return detail[: _MAX_DOWNLOAD_DETAIL_CHARS - 3].rstrip() + "..."
+    return detail
 
 
 # ── Session cookie helpers ──────────────────────────────────
@@ -794,15 +803,26 @@ async def dashboard_download(
         )
         db.commit()
     elif result["status"] == "rd_error":
-        messages.append(f"Real-Debrid: {result.get('detail', 'error')}")
+        detail = _clean_download_detail(result.get("detail", "error"))
+        messages.append(f"Real-Debrid: {detail}")
         db.execute(
             "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
             ("error", user.id, anilist_id),
         )
         db.commit()
+    elif result["status"] == "rd_provider_block":
+        detail = _clean_download_detail(
+            result.get("detail", "Real-Debrid provider blocked this torrent")
+        )
+        messages.append(f"Real-Debrid provider blocked this batch: {detail}")
+        db.execute(
+            "UPDATE anilist_plannings SET download_status = ?, download_info = ? WHERE user_id = ? AND anilist_id = ?",
+            ("rd_provider_block", detail, user.id, anilist_id),
+        )
+        db.commit()
 
     msg = " · ".join(messages)
-    return RedirectResponse(url=f"/plus/dashboard?error={msg}", status_code=302)
+    return RedirectResponse(url=f"/plus/dashboard?error={quote(msg, safe='')}", status_code=302)
 
 
 @router.post("/dashboard/remove-plan")

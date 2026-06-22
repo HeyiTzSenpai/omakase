@@ -6,6 +6,10 @@ For integration tests, set REALDEBRID_API_KEY in env.
 
 from __future__ import annotations
 
+import asyncio
+
+import pytest
+
 from omakase.plus.realdebrid import RDTorrent, RealDebridClient
 
 
@@ -54,3 +58,67 @@ class TestRealDebridClient:
         client = RealDebridClient("api-key-123", timeout=30.0)
         assert client.api_key == "api-key-123"
         assert client.timeout == 30.0
+
+    def test_add_magnet_raises_provider_block_for_rd_451(self, monkeypatch):
+        from omakase.plus.realdebrid import RealDebridProviderBlock
+
+        class FakeResponse:
+            status_code = 451
+
+            def json(self):
+                return {
+                    "error": "infringing_file",
+                    "error_code": 31,
+                    "error_details": "This file is unavailable for copyright reasons.",
+                }
+
+        class FakeAsyncClient:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, url, headers, data):
+                assert data["magnet"] == "magnet:?xt=urn:btih:BLOCKED"
+                return FakeResponse()
+
+        monkeypatch.setattr("omakase.plus.realdebrid.httpx.AsyncClient", FakeAsyncClient)
+
+        client = RealDebridClient("api-key")
+        with pytest.raises(RealDebridProviderBlock) as exc:
+            asyncio.run(client.add_magnet("magnet:?xt=urn:btih:BLOCKED"))
+
+        assert exc.value.http_status == 451
+        assert exc.value.error_code == "infringing_file"
+        assert "copyright" in exc.value.detail
+
+    def test_add_magnet_handles_non_object_json_error_body(self, monkeypatch):
+        class FakeResponse:
+            status_code = 500
+            text = '["upstream error"]'
+
+            def json(self):
+                return ["upstream error"]
+
+        class FakeAsyncClient:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, url, headers, data):
+                return FakeResponse()
+
+        monkeypatch.setattr("omakase.plus.realdebrid.httpx.AsyncClient", FakeAsyncClient)
+
+        client = RealDebridClient("api-key")
+
+        assert asyncio.run(client.add_magnet("magnet:?xt=urn:btih:GENERIC")) is None

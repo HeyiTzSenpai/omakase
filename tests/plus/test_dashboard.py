@@ -659,6 +659,115 @@ class TestPlanButton:
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 
+    def test_download_route_persists_rd_provider_block_detail(self, client):
+        """Provider-blocked RD batches are persisted distinctly from generic errors."""
+        try:
+            _signup_and_login(client)
+            download_mock = AsyncMock(
+                return_value={
+                    "status": "rd_provider_block",
+                    "detail": "Provider blocked this batch (451 infringing_file).",
+                    "http_status": 451,
+                    "error_code": "infringing_file",
+                }
+            )
+
+            with patch("omakase.plus.automation.search_and_download", new=download_mock):
+                resp = client.post(
+                    "/plus/dashboard/download",
+                    data={
+                        "anilist_id": "170732",
+                        "title": "BLEACH: Thousand-Year Blood War - The Conflict",
+                    },
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            download_mock.assert_awaited_once()
+            with _connect_client_db(client) as conn:
+                row = conn.execute(
+                    """SELECT title, download_status, download_info
+                       FROM anilist_plannings
+                       WHERE user_id = ? AND anilist_id = ?""",
+                    (_user_id(client), 170732),
+                ).fetchone()
+            assert dict(row) == {
+                "title": "BLEACH: Thousand-Year Blood War - The Conflict",
+                "download_status": "rd_provider_block",
+                "download_info": "Provider blocked this batch (451 infringing_file).",
+            }
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_download_route_caps_rd_provider_block_detail(self, client):
+        """Provider-block detail is bounded before DB persistence and redirects."""
+        try:
+            _signup_and_login(client)
+            huge_detail = "Provider blocked " + ("X" * 1200)
+            download_mock = AsyncMock(
+                return_value={
+                    "status": "rd_provider_block",
+                    "detail": huge_detail,
+                    "http_status": 451,
+                    "error_code": "infringing_file",
+                }
+            )
+
+            with patch("omakase.plus.automation.search_and_download", new=download_mock):
+                resp = client.post(
+                    "/plus/dashboard/download",
+                    data={"anilist_id": "170733", "title": "Blocked Long Detail"},
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            assert len(resp.headers["location"]) < 800
+            with _connect_client_db(client) as conn:
+                row = conn.execute(
+                    """SELECT download_status, download_info
+                       FROM anilist_plannings
+                       WHERE user_id = ? AND anilist_id = ?""",
+                    (_user_id(client), 170733),
+                ).fetchone()
+
+            assert row["download_status"] == "rd_provider_block"
+            assert len(row["download_info"]) <= 240
+            assert row["download_info"].endswith("...")
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_download_route_caps_rd_error_detail_redirect(self, client):
+        """Generic RD errors are bounded before redirect when provider detail is included."""
+        try:
+            _signup_and_login(client)
+            huge_detail = "Real-Debrid rejected all candidates; last RD response: " + ("Y" * 1200)
+            download_mock = AsyncMock(
+                return_value={
+                    "status": "rd_error",
+                    "detail": huge_detail,
+                }
+            )
+
+            with patch("omakase.plus.automation.search_and_download", new=download_mock):
+                resp = client.post(
+                    "/plus/dashboard/download",
+                    data={"anilist_id": "170734", "title": "Mixed RD Failure"},
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            assert len(resp.headers["location"]) < 800
+            with _connect_client_db(client) as conn:
+                row = conn.execute(
+                    """SELECT download_status
+                       FROM anilist_plannings
+                       WHERE user_id = ? AND anilist_id = ?""",
+                    (_user_id(client), 170734),
+                ).fetchone()
+            assert row["download_status"] == "error"
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
     def test_plan_button_creates_planning_and_request(self, client):
         """POST /plus/dashboard/plan inserts planning row."""
         try:
@@ -703,6 +812,36 @@ class TestPlanButton:
             # AniList links should use the correct IDs
             assert "https://anilist.co/anime/1/" in html
             assert "https://anilist.co/anime/5/" in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_shows_rd_provider_block_badge(self, client):
+        """Planning queue shows provider-blocked RD batches as their own state."""
+        try:
+            _signup_and_login(client)
+            with _connect_client_db(client) as conn:
+                conn.execute(
+                    """INSERT INTO anilist_plannings
+                       (user_id, anilist_id, title, status, download_status, download_info)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        _user_id(client),
+                        170732,
+                        "BLEACH: Thousand-Year Blood War - The Conflict",
+                        "PLANNING",
+                        "rd_provider_block",
+                        "Provider blocked this batch (451 infringing_file).",
+                    ),
+                )
+                conn.commit()
+
+            html = client.get("/plus/dashboard").text
+
+            assert "RD blocked" in html
+            assert "Provider blocked this batch (451 infringing_file)." in html
+            assert "planning-queue-card" in html
+            assert 'data-label="RD"' in html
+            assert 'data-label="Title"' in html
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 

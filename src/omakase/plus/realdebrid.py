@@ -13,6 +13,16 @@ import httpx
 RD_API = "https://api.real-debrid.com/rest/1.0"
 
 
+class RealDebridProviderBlock(Exception):
+    """Real-Debrid rejected a torrent because the provider blocked the hash."""
+
+    def __init__(self, *, http_status: int, error_code: str, detail: str):
+        self.http_status = http_status
+        self.error_code = error_code
+        self.detail = detail
+        super().__init__(detail)
+
+
 @dataclass
 class RDTorrent:
     """A torrent in the Real-Debrid queue."""
@@ -40,6 +50,7 @@ class RealDebridClient:
         """Add a magnet link to Real-Debrid.
 
         Returns the torrent ID on success, or ``None`` on failure.
+        Raises ``RealDebridProviderBlock`` for known provider-blocked hashes.
         """
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
@@ -50,6 +61,9 @@ class RealDebridClient:
             if resp.status_code in (201, 200):
                 data = resp.json()
                 return data.get("id")
+            block = _provider_block_from_response(resp)
+            if block is not None:
+                raise block
             return None
 
     async def select_files(self, torrent_id: str, files: str = "all") -> bool:
@@ -115,3 +129,30 @@ class RealDebridClient:
                 headers=self._headers(),
             )
             return resp.status_code in (200, 204)
+
+
+def _provider_block_from_response(resp: httpx.Response) -> RealDebridProviderBlock | None:
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    error = str(data.get("error") or "")
+    error_code = error or str(data.get("error_code") or "")
+    detail = str(
+        data.get("error_details")
+        or data.get("error_description")
+        or data.get("error")
+        or getattr(resp, "text", "")
+        or f"Real-Debrid request failed with HTTP {resp.status_code}"
+    )
+
+    if resp.status_code == 451 or error == "infringing_file" or "infringing_file" in detail:
+        return RealDebridProviderBlock(
+            http_status=resp.status_code,
+            error_code=error_code or "provider_block",
+            detail=detail,
+        )
+    return None

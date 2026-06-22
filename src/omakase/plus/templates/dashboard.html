@@ -81,6 +81,8 @@ h2{font-family:'Zen Kaku Gothic New',ui-sans-serif,system-ui,sans-serif;font-wei
 .badge-red{background:rgba(252,165,165,0.12);color:var(--red)}
 .badge-purple{background:rgba(196,132,252,0.12);color:var(--purple-glow)}
 .badge-gray{background:rgba(139,123,184,0.12);color:var(--text3)}
+.queue-detail{margin-top:0.35rem;max-width:18rem;color:var(--text3);font-size:0.72rem;line-height:1.35;overflow-wrap:anywhere}
+.planning-queue-card{padding:0.5rem;overflow-x:auto}
 
 /* Rec cards */
 .rec-card{background:var(--surface-hi);border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:0.6rem;transition:border-color var(--dur-hover,150ms) ease}
@@ -136,6 +138,17 @@ tr:hover td{background:rgba(124,58,237,0.04)}
   .lane-option{flex:1 1 calc(50% - 0.45rem)}
   .lane-option span{width:100%;justify-content:center;text-align:center}
   .feedback-actions{margin-left:0;width:100%}
+  .planning-queue-card{overflow-x:visible}
+  .planning-queue-card table,
+  .planning-queue-card tbody,
+  .planning-queue-card tr,
+  .planning-queue-card td{display:block;width:100%}
+  .planning-queue-card thead{display:none}
+  .planning-queue-card tr{padding:0.85rem 0;border-bottom:1px solid var(--border)}
+  .planning-queue-card tr:last-child{border-bottom:0}
+  .planning-queue-card td{padding:0.45rem 0;border-bottom:0}
+  .planning-queue-card td::before{content:attr(data-label);display:block;margin-bottom:0.22rem;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em}
+  .planning-queue-card .queue-detail{max-width:none}
 }
 </style>
 </head>
@@ -330,29 +343,32 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 <!-- Planning Queue -->
 <div class="section-header"><h2>Planning Queue</h2></div>
 {% if plannings %}
-<div class="card" style="padding:0.5rem;overflow-x:auto">
+<div class="card planning-queue-card">
   <table>
     <thead><tr><th>Title</th><th>AniList</th><th>RD</th><th>Added</th><th></th></tr></thead>
     <tbody>
     {% for p in plannings %}
     <tr>
-      <td><a href="https://anilist.co/anime/{{ p.anilist_id }}/" target="_blank" rel="noopener">{{ p.title }}</a></td>
-      <td>{% if p.planning_status == 'PLANNING' %}<span class="badge badge-green">Planned</span>{% else %}<span class="badge badge-gray">{{ p.planning_status }}</span>{% endif %}</td>
-      <td>
+      <td data-label="Title"><a href="https://anilist.co/anime/{{ p.anilist_id }}/" target="_blank" rel="noopener">{{ p.title }}</a></td>
+      <td data-label="AniList">{% if p.planning_status == 'PLANNING' %}<span class="badge badge-green">Planned</span>{% else %}<span class="badge badge-gray">{{ p.planning_status }}</span>{% endif %}</td>
+      <td data-label="RD">
         {% if p.download_status == 'requested' %}
         <span class="badge badge-purple" title="{{ p.download_info }}">Downloading</span>
         {% elif p.download_status == 'not_found' %}
         <span class="badge badge-yellow">Not found</span>
         {% elif p.download_status == 'no_rd_key' %}
         <span class="badge badge-gray">No RD key</span>
+        {% elif p.download_status == 'rd_provider_block' %}
+        <span class="badge badge-yellow" title="{{ p.download_info }}">RD blocked</span>
+        {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
         {% elif p.download_status == 'error' %}
         <span class="badge badge-red">Error</span>
         {% else %}
         <span style="color:var(--text3);font-size:0.72rem">—</span>
         {% endif %}
       </td>
-      <td style="color:var(--text3);font-size:0.78rem">{{ p.added_at }}</td>
-      <td>
+      <td data-label="Added" style="color:var(--text3);font-size:0.78rem">{{ p.added_at }}</td>
+      <td data-label="Actions">
         <form method="post" action="/plus/dashboard/remove-plan" style="display:inline">
           <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
           <button type="submit" class="btn btn-ghost" style="font-size:0.7rem;padding:0.2rem 0.5rem">Remove</button>

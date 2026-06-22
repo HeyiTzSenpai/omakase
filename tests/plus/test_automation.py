@@ -169,6 +169,71 @@ def test_search_and_download_falls_back_when_top_candidate_is_rejected_by_rd():
     assert calls["magnets"] == [rejected.magnet, accepted.magnet]
 
 
+def test_search_and_download_falls_back_after_provider_block():
+    """A provider-blocked RD hash should not stop trying other ranked candidates."""
+    from omakase.plus.automation import search_and_download
+    from omakase.plus.realdebrid import RealDebridProviderBlock
+
+    blocked = NyaaTorrent(
+        title="[Judas] Bleach - 001-366 Complete [BD 1080p][x265][10bit]",
+        magnet="magnet:?xt=urn:btih:RD451",
+        seeders=120,
+        leechers=5,
+        size_bytes=72_000_000_000,
+        size_display="67.1 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=True,
+    )
+    accepted = NyaaTorrent(
+        title="[GoodGroup] Bleach - 001-366 Complete [1080p][WEB-DL]",
+        magnet="magnet:?xt=urn:btih:BACKUP",
+        seeders=70,
+        leechers=5,
+        size_bytes=60_000_000_000,
+        size_display="55.9 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=False,
+        is_batch=True,
+    )
+    calls = {"magnets": []}
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            calls["magnets"].append(magnet)
+            if magnet == blocked.magnet:
+                raise RealDebridProviderBlock(
+                    http_status=451,
+                    error_code="infringing_file",
+                    detail="Real-Debrid blocked this torrent hash.",
+                )
+            return "rd-backup"
+
+        async def select_files(self, torrent_id: str, files: str = "all") -> bool:
+            assert torrent_id == "rd-backup"
+            return True
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        assert title == "Bleach"
+        assert trusted_only is False
+        return [accepted, blocked]
+
+    with (
+        patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+        patch("omakase.plus.automation.search", side_effect=fake_search),
+        patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+    ):
+        result = asyncio.run(search_and_download(db=None, user_id=1, title="Bleach"))
+
+    assert result["status"] == "ok"
+    assert result["rd_id"] == "rd-backup"
+    assert result["torrent_title"] == accepted.title
+    assert calls["magnets"] == [blocked.magnet, accepted.magnet]
+
+
 def test_search_and_download_falls_back_after_select_files_failure_and_cleans_up():
     """An accepted but unselectable RD torrent should be deleted before fallback."""
     from omakase.plus.automation import search_and_download
@@ -285,6 +350,132 @@ def test_search_and_download_returns_rd_error_when_all_ranked_candidates_are_rej
     assert result["status"] == "rd_error"
     assert "all candidate torrents" in result["detail"].lower()
     assert calls["magnets"] == [first.magnet, second.magnet]
+
+
+def test_search_and_download_returns_provider_block_when_all_batches_are_blocked():
+    """All-blocked title-level batches should surface provider-blocked status."""
+    from omakase.plus.automation import search_and_download
+    from omakase.plus.realdebrid import RealDebridProviderBlock
+
+    batch = NyaaTorrent(
+        title="[EMBER] Bleach: Thousand-Year Blood War - The Conflict (Batch) [1080p]",
+        magnet="magnet:?xt=urn:btih:BATCH451",
+        seeders=80,
+        leechers=5,
+        size_bytes=5_200_000_000,
+        size_display="4.9 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=True,
+    )
+    episode = NyaaTorrent(
+        title="[EMBER] Bleach: Thousand-Year Blood War - The Conflict - 32 [1080p]",
+        magnet="magnet:?xt=urn:btih:EPISODE",
+        seeders=70,
+        leechers=5,
+        size_bytes=390_000_000,
+        size_display="371.9 MiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=False,
+    )
+    calls = {"magnets": []}
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            calls["magnets"].append(magnet)
+            raise RealDebridProviderBlock(
+                http_status=451,
+                error_code="infringing_file",
+                detail="Real-Debrid blocked this torrent hash.",
+            )
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        assert title == "BLEACH: Thousand-Year Blood War - The Conflict"
+        assert trusted_only is False
+        return [episode, batch]
+
+    with (
+        patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+        patch("omakase.plus.automation.search", side_effect=fake_search),
+        patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+    ):
+        result = asyncio.run(
+            search_and_download(
+                db=None,
+                user_id=1,
+                title="BLEACH: Thousand-Year Blood War - The Conflict",
+            )
+        )
+
+    assert result["status"] == "rd_provider_block"
+    assert result["http_status"] == 451
+    assert result["error_code"] == "infringing_file"
+    assert "provider blocked" in result["detail"].lower()
+    assert calls["magnets"] == [batch.magnet]
+
+
+def test_search_and_download_returns_rd_error_for_mixed_provider_and_generic_failures():
+    """Provider-block status is only for candidates that all hit provider blocks."""
+    from omakase.plus.automation import search_and_download
+    from omakase.plus.realdebrid import RealDebridProviderBlock
+
+    blocked = NyaaTorrent(
+        title="[Judas] Bleach - 001-366 Complete [BD 1080p][x265][10bit]",
+        magnet="magnet:?xt=urn:btih:RD451",
+        seeders=120,
+        leechers=5,
+        size_bytes=72_000_000_000,
+        size_display="67.1 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=True,
+    )
+    rejected = NyaaTorrent(
+        title="[GoodGroup] Bleach - 001-366 Complete [1080p][WEB-DL]",
+        magnet="magnet:?xt=urn:btih:GENERIC",
+        seeders=70,
+        leechers=5,
+        size_bytes=60_000_000_000,
+        size_display="55.9 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=False,
+        is_batch=True,
+    )
+    calls = {"magnets": []}
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            calls["magnets"].append(magnet)
+            if magnet == blocked.magnet:
+                raise RealDebridProviderBlock(
+                    http_status=451,
+                    error_code="infringing_file",
+                    detail="Real-Debrid blocked this torrent hash.",
+                )
+            return None
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        assert title == "Bleach"
+        assert trusted_only is False
+        return [rejected, blocked]
+
+    with (
+        patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+        patch("omakase.plus.automation.search", side_effect=fake_search),
+        patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+    ):
+        result = asyncio.run(search_and_download(db=None, user_id=1, title="Bleach"))
+
+    assert result["status"] == "rd_error"
+    assert "provider blocked" in result["detail"]
+    assert calls["magnets"] == [blocked.magnet, rejected.magnet]
 
 
 def test_search_and_download_does_not_fallback_from_batch_to_single_episode():
