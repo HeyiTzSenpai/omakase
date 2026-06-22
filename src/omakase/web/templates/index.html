@@ -16,17 +16,17 @@
       <p class="hero__eyebrow">お任せ · Omakase</p>
       <h1 class="hero__title">An anime sommelier,<br>tuned to your taste.</h1>
       <p class="hero__lede">
-        Connect your AniList or MAL, pick any LLM (local or cloud), and get
-        a hand-curated tasting menu of anime based on what you actually
-        love — not what's trending.
+        Personal anime recommender. Bring your own LLM key.
+        Nothing stored server-side.
       </p>
 
       <div class="byok-banner">
         <span class="byok-banner__icon" aria-hidden="true">🔑</span>
         <div>
           <strong>Bring your own LLM key.</strong>
-          Your API key is used for a single request and is never stored or logged on the server.
-          Prefer fully local? Install with <code>pip install omakase</code> and run <code>omakase web</code>.
+          Pick any backend — local (Ollama, LM Studio) or cloud (OpenAI, Anthropic, Gemini) —
+          paste your key below, and get a tasting menu from your scored anime history.
+          Your key is used for a single request and never stored or logged.
         </div>
       </div>
 
@@ -183,7 +183,7 @@
 
         <div style="display:flex; gap: var(--space-3); align-items: center;">
           <button type="submit" class="btn btn--primary" id="run-btn">
-            <span>Serve my recommendations</span>
+            <span>Try it with your API key</span>
             <span style="font-family:'JetBrains Mono',monospace;font-size:1rem;">→</span>
           </button>
           <button type="button" class="btn btn--secondary" onclick="loadProfile()">Load from file</button>
@@ -214,6 +214,7 @@
 
   <footer class="footer">
     <a href="https://github.com/HeyiTzSenpai/omakase">Omakase</a> &middot; MIT &middot; from the homelab kitchen
+    <br><small>Plus accounts are private and not currently open.</small>
   </footer>
 
   <script>
