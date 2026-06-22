@@ -8,14 +8,84 @@ Called from the ``POST /plus/api/plan-and-download`` route.
 
 from __future__ import annotations
 
-from omakase.plus.nyaa import rank_best, search
+import re
+import uuid
+
+from omakase.plus.nyaa import NyaaTorrent, rank_best, search
 from omakase.plus.realdebrid import RealDebridClient, RealDebridProviderBlock
 from omakase.plus.secrets import read_secret
 
 MAX_RD_CANDIDATES = 5
+MAX_ATTEMPT_DETAIL_CHARS = 240
+
+_BTIH_RE = re.compile(r"urn:btih:([^&]+)", re.IGNORECASE)
 
 
-async def search_and_download(db, user_id: int, title: str) -> dict:
+def _clean_attempt_detail(detail: str | None) -> str:
+    cleaned = " ".join(str(detail or "").split())
+    if len(cleaned) <= MAX_ATTEMPT_DETAIL_CHARS:
+        return cleaned
+    return cleaned[: MAX_ATTEMPT_DETAIL_CHARS - 3] + "..."
+
+
+def _torrent_hash(magnet: str) -> str:
+    match = _BTIH_RE.search(magnet)
+    if not match:
+        return ""
+    return match.group(1).upper()
+
+
+def _record_download_attempt(
+    db,
+    *,
+    user_id: int,
+    planning_id: int | None,
+    request_id: str,
+    candidate_rank: int,
+    total_candidates: int,
+    candidate: NyaaTorrent,
+    status: str,
+    http_status: int | None = None,
+    error_code: str = "",
+    detail: str = "",
+    rd_torrent_id: str = "",
+) -> None:
+    if db is None or planning_id is None:
+        return
+
+    db.execute(
+        """INSERT INTO download_attempts
+           (user_id, anilist_planning_id, request_id, candidate_rank, total_candidates,
+            torrent_title, torrent_hash, seeders, size_display, is_batch, status,
+            http_status, error_code, detail, rd_torrent_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            user_id,
+            planning_id,
+            request_id,
+            candidate_rank,
+            total_candidates,
+            candidate.title,
+            _torrent_hash(candidate.magnet),
+            candidate.seeders,
+            candidate.size_display,
+            1 if candidate.is_batch else 0,
+            status,
+            http_status,
+            error_code,
+            _clean_attempt_detail(detail),
+            rd_torrent_id,
+        ),
+    )
+    db.commit()
+
+
+async def search_and_download(
+    db,
+    user_id: int,
+    title: str,
+    planning_id: int | None = None,
+) -> dict:
     """Search nyaa.si for an anime title and add the best torrent to Real-Debrid.
 
     Returns a status dict suitable for JSON response:
@@ -43,13 +113,15 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
 
     # 3. Add magnets to Real-Debrid, falling back when a specific hash is rejected.
     client = RealDebridClient(rd_key)
+    request_id = uuid.uuid4().hex
     last_failed_rd_id: str | None = None
     last_failure_detail: str | None = None
     provider_blocks: list[RealDebridProviderBlock] = []
     non_provider_failures = 0
     attempted = 0
 
-    for candidate in candidates[:MAX_RD_CANDIDATES]:
+    total_candidates = len(candidates)
+    for candidate_rank, candidate in enumerate(candidates[:MAX_RD_CANDIDATES], start=1):
         attempted += 1
         try:
             rd_id = await client.add_magnet(candidate.magnet)
@@ -59,9 +131,34 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
                 f"Real-Debrid provider blocked a candidate "
                 f"({exc.http_status} {exc.error_code}): {exc.detail}"
             )
+            _record_download_attempt(
+                db,
+                user_id=user_id,
+                planning_id=planning_id,
+                request_id=request_id,
+                candidate_rank=candidate_rank,
+                total_candidates=total_candidates,
+                candidate=candidate,
+                status="provider_block",
+                http_status=exc.http_status,
+                error_code=exc.error_code,
+                detail=exc.detail,
+            )
             continue
         if rd_id is None:
             non_provider_failures += 1
+            add_failure_detail = "Real-Debrid add_magnet returned no torrent id"
+            _record_download_attempt(
+                db,
+                user_id=user_id,
+                planning_id=planning_id,
+                request_id=request_id,
+                candidate_rank=candidate_rank,
+                total_candidates=total_candidates,
+                candidate=candidate,
+                status="rd_add_failed",
+                detail=add_failure_detail,
+            )
             continue
 
         # 4. Select all files to start download
@@ -70,6 +167,18 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
             non_provider_failures += 1
             last_failed_rd_id = rd_id
             last_failure_detail = "Real-Debrid failed to select files for download"
+            _record_download_attempt(
+                db,
+                user_id=user_id,
+                planning_id=planning_id,
+                request_id=request_id,
+                candidate_rank=candidate_rank,
+                total_candidates=total_candidates,
+                candidate=candidate,
+                status="select_failed",
+                detail=last_failure_detail,
+                rd_torrent_id=rd_id,
+            )
             delete_torrent = getattr(client, "delete_torrent", None)
             if delete_torrent is not None:
                 try:
@@ -78,9 +187,22 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
                     pass
             continue
 
+        _record_download_attempt(
+            db,
+            user_id=user_id,
+            planning_id=planning_id,
+            request_id=request_id,
+            candidate_rank=candidate_rank,
+            total_candidates=total_candidates,
+            candidate=candidate,
+            status="selected",
+            detail="Real-Debrid selected all files",
+            rd_torrent_id=rd_id,
+        )
         return {
             "status": "ok",
             "rd_id": rd_id,
+            "request_id": request_id,
             "magnet": candidate.magnet,
             "torrent_title": candidate.title,
             "seeders": candidate.seeders,
@@ -94,6 +216,7 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
             "status": "rd_provider_block",
             "http_status": last_block.http_status,
             "error_code": last_block.error_code,
+            "request_id": request_id,
             "detail": (
                 f'Real-Debrid provider blocked {len(provider_blocks)} {plural} for "{title}" '
                 f"({attempted} of {len(candidates)} ranked candidates attempted); "
@@ -104,6 +227,7 @@ async def search_and_download(db, user_id: int, title: str) -> dict:
 
     response = {
         "status": "rd_error",
+        "request_id": request_id,
         "detail": (
             f'Real-Debrid rejected or failed all candidate torrents tried for "{title}" '
             f"({attempted} of {len(candidates)} ranked candidates attempted)"

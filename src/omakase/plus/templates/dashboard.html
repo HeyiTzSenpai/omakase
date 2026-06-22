@@ -82,6 +82,14 @@ h2{font-family:'Zen Kaku Gothic New',ui-sans-serif,system-ui,sans-serif;font-wei
 .badge-purple{background:rgba(196,132,252,0.12);color:var(--purple-glow)}
 .badge-gray{background:rgba(139,123,184,0.12);color:var(--text3)}
 .queue-detail{margin-top:0.35rem;max-width:18rem;color:var(--text3);font-size:0.72rem;line-height:1.35;overflow-wrap:anywhere}
+.download-attempts{margin-top:0.45rem;color:var(--text3);font-size:0.72rem}
+.download-attempts summary{cursor:pointer;color:var(--text2);font-weight:600}
+.attempt-list{display:grid;gap:0.35rem;margin-top:0.35rem}
+.attempt-item{padding:0.45rem;border:1px solid var(--border);border-radius:6px;background:rgba(10,6,18,0.55)}
+.attempt-head{display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap}
+.attempt-title{margin-top:0.25rem;color:var(--text2);line-height:1.35;overflow-wrap:anywhere}
+.attempt-meta{margin-top:0.18rem;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:0.65rem;line-height:1.35;overflow-wrap:anywhere}
+.queue-actions{display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap}
 .planning-queue-card{padding:0.5rem;overflow-x:auto}
 
 /* Rec cards */
@@ -356,23 +364,55 @@ tr:hover td{background:rgba(124,58,237,0.04)}
         <span class="badge badge-purple" title="{{ p.download_info }}">Downloading</span>
         {% elif p.download_status == 'not_found' %}
         <span class="badge badge-yellow">Not found</span>
+        {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
         {% elif p.download_status == 'no_rd_key' %}
         <span class="badge badge-gray">No RD key</span>
+        {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
         {% elif p.download_status == 'rd_provider_block' %}
         <span class="badge badge-yellow" title="{{ p.download_info }}">RD blocked</span>
         {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
         {% elif p.download_status == 'error' %}
         <span class="badge badge-red">Error</span>
+        {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
         {% else %}
         <span style="color:var(--text3);font-size:0.72rem">—</span>
+        {% endif %}
+        {% if p.download_attempts %}
+        <details class="download-attempts">
+          <summary>RD attempts</summary>
+          <div class="attempt-list">
+            {% for a in p.download_attempts %}
+            <div class="attempt-item">
+              <div class="attempt-head">
+                <span class="badge {{ a.badge_class }}">{{ a.status_label }}</span>
+                <span class="attempt-meta">#{{ a.candidate_rank }}/{{ a.total_candidates }}{% if a.response_label %} &middot; {{ a.response_label }}{% endif %}</span>
+              </div>
+              <div class="attempt-title">{{ a.torrent_title }}</div>
+              <div class="attempt-meta">
+                {{ a.seeders }}s &middot; {{ a.size_display }}{% if a.is_batch %} &middot; batch{% endif %}{% if a.torrent_hash %} &middot; {{ a.torrent_hash }}{% endif %}
+              </div>
+              {% if a.detail %}<div class="queue-detail">{{ a.detail }}</div>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </details>
         {% endif %}
       </td>
       <td data-label="Added" style="color:var(--text3);font-size:0.78rem">{{ p.added_at }}</td>
       <td data-label="Actions">
-        <form method="post" action="/plus/dashboard/remove-plan" style="display:inline">
-          <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
-          <button type="submit" class="btn btn-ghost" style="font-size:0.7rem;padding:0.2rem 0.5rem">Remove</button>
-        </form>
+        <div class="queue-actions">
+          {% if p.download_status in ['', 'not_found', 'error', 'rd_provider_block', 'no_rd_key'] %}
+          <form method="post" action="/plus/dashboard/download" style="display:inline">
+            <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
+            <input type="hidden" name="title" value="{{ p.title }}">
+            <button type="submit" class="btn btn-secondary btn-small">{{ 'Download' if not p.download_status else 'Retry' }}</button>
+          </form>
+          {% endif %}
+          <form method="post" action="/plus/dashboard/remove-plan" style="display:inline">
+            <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
+            <button type="submit" class="btn btn-ghost" style="font-size:0.7rem;padding:0.2rem 0.5rem">Remove</button>
+          </form>
+        </div>
       </td>
     </tr>
     {% endfor %}

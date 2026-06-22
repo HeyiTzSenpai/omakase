@@ -668,3 +668,97 @@ def test_search_and_download_reports_select_files_failure_and_cleans_up():
     assert result["rd_id"] == "rd-unselectable"
     assert "select files" in result["detail"]
     assert calls["deleted"] is True
+
+
+def test_search_and_download_records_provider_block_attempt_without_magnet():
+    """Attempt telemetry keeps RD block evidence without storing full magnets."""
+    from omakase.plus.automation import search_and_download
+    from omakase.plus.db import _db, get_db
+    from omakase.plus.realdebrid import RealDebridProviderBlock
+
+    torrent = NyaaTorrent(
+        title="[SubsPlease] Bleach - 451 [1080p][HEVC]",
+        magnet="magnet:?xt=urn:btih:ABCDEF1234567890&dn=blocked",
+        seeders=44,
+        leechers=2,
+        size_bytes=1_500_000_000,
+        size_display="1.4 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=True,
+        is_batch=True,
+    )
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            assert magnet == torrent.magnet
+            raise RealDebridProviderBlock(
+                http_status=451,
+                error_code="infringing_file",
+                detail="Provider blocked this file",
+            )
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        assert title == "Bleach"
+        assert trusted_only is False
+        return [torrent]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = get_db(tmp)
+        try:
+            user_id = conn.execute(
+                "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+                ("attempts@example.com", "hash"),
+            ).lastrowid
+            planning_id = conn.execute(
+                """INSERT INTO anilist_plannings
+                   (user_id, anilist_id, title, status)
+                   VALUES (?, ?, ?, ?)""",
+                (user_id, 170732, "Bleach", "PLANNING"),
+            ).lastrowid
+            conn.commit()
+
+            with (
+                patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+                patch("omakase.plus.automation.search", side_effect=fake_search),
+                patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+            ):
+                result = asyncio.run(
+                    search_and_download(
+                        db=conn,
+                        user_id=user_id,
+                        title="Bleach",
+                        planning_id=planning_id,
+                    )
+                )
+
+            rows = conn.execute(
+                """SELECT candidate_rank, total_candidates, torrent_title, torrent_hash,
+                          seeders, size_display, is_batch, status, http_status,
+                          error_code, detail, rd_torrent_id
+                   FROM download_attempts
+                   WHERE anilist_planning_id = ?""",
+                (planning_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+            _db.clear()
+
+    assert result["status"] == "rd_provider_block"
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["candidate_rank"] == 1
+    assert row["total_candidates"] == 1
+    assert row["torrent_title"] == torrent.title
+    assert row["torrent_hash"] == "ABCDEF1234567890"
+    assert row["seeders"] == 44
+    assert row["size_display"] == "1.4 GiB"
+    assert row["is_batch"] == 1
+    assert row["status"] == "provider_block"
+    assert row["http_status"] == 451
+    assert row["error_code"] == "infringing_file"
+    assert row["detail"] == "Provider blocked this file"
+    assert row["rd_torrent_id"] == ""
+    assert "magnet:" not in row["torrent_hash"]

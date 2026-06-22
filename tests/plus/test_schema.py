@@ -66,12 +66,13 @@ def test_all_tables_exist(_fresh_db):
         "anilist_plannings",
         "overseerr_requests",
         "recommendation_feedback",
+        "download_attempts",
         "_migrations",  # internal tracking table
     }
     assert tables == expected, (
         f"Mismatch — missing: {expected - tables}, extra: {tables - expected}"
     )
-    assert len(tables) == 9
+    assert len(tables) == 10
 
 
 def test_recommendation_feedback_migration_runs_before_existing_lane_error(monkeypatch, tmp_path):
@@ -265,3 +266,50 @@ def test_cascade_delete(_fresh_db):
         "SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user_id,)
     ).fetchone()
     assert after == 0
+
+
+def test_download_attempts_cascade_with_planning(_fresh_db):
+    """Deleting a planning row should remove its RD attempt telemetry."""
+    conn = _fresh_db
+    user_id = conn.execute(
+        "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+        ("attempts@example.com", "hash"),
+    ).lastrowid
+    planning_id = conn.execute(
+        """INSERT INTO anilist_plannings (user_id, anilist_id, title, status)
+           VALUES (?, ?, ?, ?)""",
+        (user_id, 170732, "BLEACH: Thousand-Year Blood War - The Conflict", "PLANNING"),
+    ).lastrowid
+    conn.execute(
+        """INSERT INTO download_attempts
+           (user_id, anilist_planning_id, request_id, candidate_rank, total_candidates,
+            torrent_title, torrent_hash, seeders, size_display, is_batch, status,
+            http_status, error_code, detail)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            user_id,
+            planning_id,
+            "req-test",
+            1,
+            1,
+            "[Group] Bleach 451 [1080p]",
+            "ABCDEF1234567890",
+            44,
+            "1.4 GiB",
+            0,
+            "provider_block",
+            451,
+            "infringing_file",
+            "Provider blocked this file",
+        ),
+    )
+    conn.commit()
+
+    conn.execute("DELETE FROM anilist_plannings WHERE id = ?", (planning_id,))
+    conn.commit()
+
+    (remaining,) = conn.execute(
+        "SELECT COUNT(*) FROM download_attempts WHERE anilist_planning_id = ?",
+        (planning_id,),
+    ).fetchone()
+    assert remaining == 0

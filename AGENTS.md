@@ -1,6 +1,6 @@
 # omakase — project instructions for AI agents
 
-LLM-powered anime sommelier: a Python CLI + FastAPI web app. Applies to Claude Code, Codex, and Cherry Claw (DeepSeek). Canonical narrative state: `C:\Users\qazws\Nextcloud2\Homelab Vault\Projects\omakase\README.md`. Active brief: `C:\Users\qazws\Nextcloud2\Homelab Vault\Agent-Sessions\omakase\01-plus-mvp-me-only.md`.
+LLM-powered anime sommelier: a Python CLI + FastAPI web app. Applies to Claude Code, Codex, and Cherry Claw (DeepSeek). Canonical narrative state: `C:\Users\qazws\Nextcloud2\Homelab Vault\Projects\omakase\README.md`. Active brief: `C:\Users\qazws\Nextcloud2\Homelab Vault\Agent-Sessions\omakase\02-provider-block-observability.md`.
 
 ## Stack & layout
 

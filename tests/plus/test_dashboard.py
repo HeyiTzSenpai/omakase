@@ -646,12 +646,13 @@ class TestPlanButton:
             download_mock.assert_awaited_once()
             with _connect_client_db(client) as conn:
                 row = conn.execute(
-                    """SELECT title, status, download_status
+                    """SELECT id, title, status, download_status
                        FROM anilist_plannings
                        WHERE user_id = ? AND anilist_id = ?""",
                     (_user_id(client), 21),
                 ).fetchone()
-            assert dict(row) == {
+            assert download_mock.await_args.kwargs["planning_id"] == row["id"]
+            assert {key: row[key] for key in ("title", "status", "download_status")} == {
                 "title": "One Piece",
                 "status": "PLANNING",
                 "download_status": "no_rd_key",
@@ -768,6 +769,58 @@ class TestPlanButton:
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 
+    def test_download_route_overwrites_stale_rd_info_on_retry(self, client):
+        """Retry results should replace old provider-block details and RD ids."""
+        try:
+            _signup_and_login(client)
+            user_id = _user_id(client)
+            with _connect_client_db(client) as conn:
+                conn.execute(
+                    """INSERT INTO anilist_plannings
+                       (user_id, anilist_id, title, status, download_status,
+                        download_info, rd_torrent_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        user_id,
+                        170735,
+                        "Retry Target",
+                        "PLANNING",
+                        "rd_provider_block",
+                        "old provider-block detail",
+                        "old-rd-id",
+                    ),
+                )
+                conn.commit()
+
+            download_mock = AsyncMock(
+                return_value={
+                    "status": "rd_error",
+                    "detail": "Real-Debrid rejected all retry candidates",
+                }
+            )
+
+            with patch("omakase.plus.automation.search_and_download", new=download_mock):
+                resp = client.post(
+                    "/plus/dashboard/download",
+                    data={"anilist_id": "170735", "title": "Retry Target"},
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            with _connect_client_db(client) as conn:
+                row = conn.execute(
+                    """SELECT download_status, download_info, rd_torrent_id
+                       FROM anilist_plannings
+                       WHERE user_id = ? AND anilist_id = ?""",
+                    (user_id, 170735),
+                ).fetchone()
+
+            assert row["download_status"] == "error"
+            assert row["download_info"] == "Real-Debrid rejected all retry candidates"
+            assert row["rd_torrent_id"] == ""
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
     def test_plan_button_creates_planning_and_request(self, client):
         """POST /plus/dashboard/plan inserts planning row."""
         try:
@@ -842,6 +895,91 @@ class TestPlanButton:
             assert "planning-queue-card" in html
             assert 'data-label="RD"' in html
             assert 'data-label="Title"' in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_shows_rd_attempts_and_retry_for_blocked_rows(self, client):
+        """Blocked queue rows expose safe attempt telemetry plus a retry affordance."""
+        try:
+            _signup_and_login(client)
+            user_id = _user_id(client)
+            with _connect_client_db(client) as conn:
+                planning_id = conn.execute(
+                    """INSERT INTO anilist_plannings
+                       (user_id, anilist_id, title, status, download_status, download_info)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        user_id,
+                        170732,
+                        "BLEACH: Thousand-Year Blood War - The Conflict",
+                        "PLANNING",
+                        "rd_provider_block",
+                        "Provider blocked this batch (451 infringing_file).",
+                    ),
+                ).lastrowid
+                conn.execute(
+                    """INSERT INTO download_attempts
+                       (user_id, anilist_planning_id, request_id, candidate_rank,
+                        total_candidates, torrent_title, torrent_hash, seeders,
+                        size_display, is_batch, status, http_status, error_code, detail)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        user_id,
+                        planning_id,
+                        "req-ui",
+                        1,
+                        2,
+                        "[Group] BLEACH - 451 [1080p][HEVC]",
+                        "ABCDEF1234567890",
+                        44,
+                        "1.4 GiB",
+                        0,
+                        "provider_block",
+                        451,
+                        "infringing_file",
+                        "Provider blocked this file",
+                    ),
+                )
+                conn.commit()
+
+            html = client.get("/plus/dashboard").text
+
+            assert "RD attempts" in html
+            assert "[Group] BLEACH - 451 [1080p][HEVC]" in html
+            assert "ABCDEF1234567890" in html
+            assert "451 infringing_file" in html
+            assert "Provider blocked this file" in html
+            assert ">Retry<" in html
+            assert 'action="/plus/dashboard/download"' in html
+            assert "magnet:" not in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_hides_retry_for_requested_download(self, client):
+        """Rows already handed to Real-Debrid should not show a retry button."""
+        try:
+            _signup_and_login(client)
+            with _connect_client_db(client) as conn:
+                conn.execute(
+                    """INSERT INTO anilist_plannings
+                       (user_id, anilist_id, title, status, download_status, download_info)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        _user_id(client),
+                        21,
+                        "One Piece",
+                        "PLANNING",
+                        "requested",
+                        "One Piece batch (26 GiB, 200s)",
+                    ),
+                )
+                conn.commit()
+
+            html = client.get("/plus/dashboard").text
+
+            assert "Downloading" in html
+            assert ">Retry<" not in html
+            assert ">Remove<" in html
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 

@@ -111,6 +111,33 @@ def _clean_download_detail(value: object) -> str:
     return detail
 
 
+def _download_attempt_status_label(status: str) -> str:
+    return {
+        "provider_block": "RD blocked",
+        "rd_add_failed": "Add failed",
+        "select_failed": "Select failed",
+        "selected": "Selected",
+    }.get(status, status.replace("_", " ").title())
+
+
+def _download_attempt_badge_class(status: str) -> str:
+    return {
+        "provider_block": "badge-yellow",
+        "rd_add_failed": "badge-red",
+        "select_failed": "badge-red",
+        "selected": "badge-green",
+    }.get(status, "badge-gray")
+
+
+def _download_attempt_response_label(row) -> str:
+    parts: list[str] = []
+    if row["http_status"] is not None:
+        parts.append(str(row["http_status"]))
+    if row["error_code"]:
+        parts.append(row["error_code"])
+    return " ".join(parts)
+
+
 # ── Session cookie helpers ──────────────────────────────────
 
 _SESSION_COOKIE = "omakase_session"
@@ -410,8 +437,48 @@ async def dashboard(
                 "download_status": p["download_status"] or "",
                 "download_info": p["download_info"] or "",
                 "rd_torrent_id": p["rd_torrent_id"] or "",
+                "download_attempts": [],
             }
         )
+
+    planning_ids = [p["id"] for p in plannings]
+    attempts_by_planning: dict[int, list[dict]] = defaultdict(list)
+    if planning_ids:
+        placeholders = ",".join("?" for _ in planning_ids)
+        attempt_rows = db.execute(
+            f"""SELECT anilist_planning_id, request_id, candidate_rank, total_candidates,
+                       torrent_title, torrent_hash, seeders, size_display, is_batch,
+                       status, http_status, error_code, detail, rd_torrent_id, created_at
+                FROM download_attempts
+                WHERE user_id = ? AND anilist_planning_id IN ({placeholders})
+                ORDER BY anilist_planning_id, created_at DESC, id DESC""",
+            (user.id, *planning_ids),
+        ).fetchall()
+        for row in attempt_rows:
+            planning_attempts = attempts_by_planning[row["anilist_planning_id"]]
+            if len(planning_attempts) >= 5:
+                continue
+            planning_attempts.append(
+                {
+                    "request_id": row["request_id"],
+                    "candidate_rank": row["candidate_rank"],
+                    "total_candidates": row["total_candidates"],
+                    "torrent_title": row["torrent_title"],
+                    "torrent_hash": row["torrent_hash"],
+                    "seeders": row["seeders"],
+                    "size_display": row["size_display"],
+                    "is_batch": bool(row["is_batch"]),
+                    "status": row["status"],
+                    "status_label": _download_attempt_status_label(row["status"]),
+                    "badge_class": _download_attempt_badge_class(row["status"]),
+                    "response_label": _download_attempt_response_label(row),
+                    "detail": row["detail"],
+                    "rd_torrent_id": row["rd_torrent_id"],
+                    "created_at": row["created_at"],
+                }
+            )
+        for planning in plannings:
+            planning["download_attempts"] = attempts_by_planning[planning["id"]]
 
     return templates.TemplateResponse(
         request,
@@ -768,16 +835,19 @@ async def dashboard_download(
         (user.id, anilist_id),
     ).fetchone()
     if not existing:
-        db.execute(
+        cursor = db.execute(
             "INSERT INTO anilist_plannings (user_id, anilist_id, title, status) VALUES (?, ?, ?, ?)",
             (user.id, anilist_id, title, "PLANNING"),
         )
+        planning_id = cursor.lastrowid
         db.commit()
         messages.append("Queued")
+    else:
+        planning_id = existing["id"]
 
     from omakase.plus.automation import search_and_download
 
-    result = await search_and_download(db, user.id, title)
+    result = await search_and_download(db, user.id, title, planning_id=planning_id)
 
     if result["status"] == "ok":
         rd_id = result.get("rd_id", "")
@@ -789,25 +859,33 @@ async def dashboard_download(
         )
         db.commit()
     elif result["status"] == "no_rd_key":
+        detail = _clean_download_detail(result.get("detail", "Real-Debrid API key not configured"))
         messages.append("Set Real-Debrid API key in Settings to auto-download")
         db.execute(
-            "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
-            ("no_rd_key", user.id, anilist_id),
+            """UPDATE anilist_plannings
+               SET download_status = ?, download_info = ?, rd_torrent_id = ''
+               WHERE user_id = ? AND anilist_id = ?""",
+            ("no_rd_key", detail, user.id, anilist_id),
         )
         db.commit()
     elif result["status"] == "not_found":
+        detail = _clean_download_detail(result.get("detail", f'No torrents found for "{title}"'))
         messages.append(f'No torrents found on nyaa.si for "{title}"')
         db.execute(
-            "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
-            ("not_found", user.id, anilist_id),
+            """UPDATE anilist_plannings
+               SET download_status = ?, download_info = ?, rd_torrent_id = ''
+               WHERE user_id = ? AND anilist_id = ?""",
+            ("not_found", detail, user.id, anilist_id),
         )
         db.commit()
     elif result["status"] == "rd_error":
         detail = _clean_download_detail(result.get("detail", "error"))
         messages.append(f"Real-Debrid: {detail}")
         db.execute(
-            "UPDATE anilist_plannings SET download_status = ? WHERE user_id = ? AND anilist_id = ?",
-            ("error", user.id, anilist_id),
+            """UPDATE anilist_plannings
+               SET download_status = ?, download_info = ?, rd_torrent_id = ''
+               WHERE user_id = ? AND anilist_id = ?""",
+            ("error", detail, user.id, anilist_id),
         )
         db.commit()
     elif result["status"] == "rd_provider_block":
@@ -816,7 +894,9 @@ async def dashboard_download(
         )
         messages.append(f"Real-Debrid provider blocked this batch: {detail}")
         db.execute(
-            "UPDATE anilist_plannings SET download_status = ?, download_info = ? WHERE user_id = ? AND anilist_id = ?",
+            """UPDATE anilist_plannings
+               SET download_status = ?, download_info = ?, rd_torrent_id = ''
+               WHERE user_id = ? AND anilist_id = ?""",
             ("rd_provider_block", detail, user.id, anilist_id),
         )
         db.commit()
@@ -1188,14 +1268,17 @@ async def plan_and_download(
         except (ValueError, httpx.HTTPError):
             pass
 
-        db.execute(
+        cursor = db.execute(
             "INSERT INTO anilist_plannings (user_id, anilist_id, title, status) VALUES (?, ?, ?, ?)",
             (user.id, anilist_id, title, "PLANNING"),
         )
+        planning_id = cursor.lastrowid
         db.commit()
+    else:
+        planning_id = existing["id"]
 
     # 2. Search nyaa.si for the best torrent
     from omakase.plus.automation import search_and_download
 
-    result = await search_and_download(db, user.id, title)
+    result = await search_and_download(db, user.id, title, planning_id=planning_id)
     return result
