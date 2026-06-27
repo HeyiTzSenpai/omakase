@@ -112,6 +112,27 @@ _KNOWN_HIGH_QUALITY_GROUPS = (
 _RAW_PATTERN = re.compile(r"\braws?\b", re.IGNORECASE)
 _SHORT_TITLE_TOKEN_MAX_LEN = 8
 _SHORT_TITLE_ROMAN = r"(?:ii|iii|iv|v|vi|vii|viii|ix|x)"
+_ORDINAL_SEASON_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\s+season\b", re.I)
+_SEASON_RE = re.compile(r"\bseason[\s._-]*(\d{1,2})\b|\bs[\s._-]*(\d{1,2})\b", re.I)
+_PART_RE = re.compile(
+    rf"\bpart[\s._-]*(\d{{1,2}}|{_SHORT_TITLE_ROMAN})\b|"
+    rf"\bpt[\s._-]*(\d{{1,2}}|{_SHORT_TITLE_ROMAN})\b",
+    re.I,
+)
+_COUR_RE = re.compile(r"\bcour[\s._-]*(\d{1,2})\b", re.I)
+_FINAL_SEASON_RE = re.compile(r"\b(?:the\s+)?final\s+season\b", re.I)
+_ROMAN_NUMERALS = {
+    "i": 1,
+    "ii": 2,
+    "iii": 3,
+    "iv": 4,
+    "v": 5,
+    "vi": 6,
+    "vii": 7,
+    "viii": 8,
+    "ix": 9,
+    "x": 10,
+}
 _TITLE_STOPWORDS = {
     "a",
     "all",
@@ -293,6 +314,55 @@ def _is_exact_short_title_release(candidate_title: str, expected_token: str) -> 
     return _title_tokens(candidate_title) == {expected_token}
 
 
+def _explicit_season_number(title: str) -> int | None:
+    for pattern in (_SEASON_RE, _ORDINAL_SEASON_RE):
+        match = pattern.search(title)
+        if match:
+            for group in match.groups():
+                if group:
+                    return int(group)
+    return None
+
+
+def _marker_number(title: str, pattern: re.Pattern[str]) -> int | None:
+    match = pattern.search(title)
+    if not match:
+        return None
+    for group in match.groups():
+        if not group:
+            continue
+        value = group.lower()
+        if value.isdigit():
+            return int(value)
+        if value in _ROMAN_NUMERALS:
+            return _ROMAN_NUMERALS[value]
+    return None
+
+
+def _explicit_release_intent(title: str) -> dict[str, int | bool | None]:
+    return {
+        "season": _explicit_season_number(title),
+        "part": _marker_number(title, _PART_RE),
+        "cour": _marker_number(title, _COUR_RE),
+        "final_season": bool(_FINAL_SEASON_RE.search(title)),
+    }
+
+
+def _release_intent_matches(candidate_title: str, expected_title: str) -> bool:
+    expected = _explicit_release_intent(expected_title)
+    if not any(value for value in expected.values()):
+        return True
+
+    candidate = _explicit_release_intent(candidate_title)
+    for marker in ("season", "part", "cour"):
+        expected_value = expected[marker]
+        if expected_value is not None and candidate[marker] != expected_value:
+            return False
+    if expected["final_season"] and not candidate["final_season"]:
+        return False
+    return True
+
+
 def _title_match_score(candidate_title: str, expected_title: str | None) -> float:
     if not expected_title:
         return 1.0
@@ -301,9 +371,18 @@ def _title_match_score(candidate_title: str, expected_title: str | None) -> floa
     if not expected_tokens:
         return 1.0
 
+    if not _release_intent_matches(candidate_title, expected_title):
+        return 0.0
+
+    expected_season = _explicit_season_number(expected_title)
+    if expected_season is not None:
+        candidate_season = _explicit_season_number(candidate_title)
+        if candidate_season != expected_season:
+            return 0.0
+
     if len(expected_tokens) == 1:
         expected_token = next(iter(expected_tokens))
-        if len(expected_token) <= _SHORT_TITLE_TOKEN_MAX_LEN:
+        if expected_season is None and len(expected_token) <= _SHORT_TITLE_TOKEN_MAX_LEN:
             return 1.0 if _is_exact_short_title_release(candidate_title, expected_token) else 0.0
 
     candidate_tokens = _title_tokens(candidate_title)

@@ -179,6 +179,24 @@ tr:hover td{background:rgba(124,58,237,0.04)}
 <div class="msg {% if 'Removed' in error or 'Planned' in error or 'Downloading' in error %}msg--ok{% endif %}">{{ error }}</div>
 {% endif %}
 
+<!-- Direct Auto-Download -->
+<div class="card">
+  <h2 style="margin-bottom:0.75rem">Add Anime</h2>
+  <form method="post" action="/plus/dashboard/direct-download">
+    <div class="field">
+      <label>Anime or AniList URL</label>
+      <input type="text" name="query" placeholder="Golden Kamuy or https://anilist.co/anime/99699/" autocomplete="off">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Season / arc (optional)</label>
+        <input type="text" name="season" placeholder="3 or Final Season Part 2">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Add + Download</button>
+  </form>
+</div>
+
 <!-- Taste Profile -->
 <div class="card">
   <div class="card-header">

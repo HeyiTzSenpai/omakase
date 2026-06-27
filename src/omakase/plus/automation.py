@@ -85,6 +85,7 @@ async def search_and_download(
     user_id: int,
     title: str,
     planning_id: int | None = None,
+    search_titles: list[str] | None = None,
 ) -> dict:
     """Search nyaa.si for an anime title and add the best torrent to Real-Debrid.
 
@@ -99,12 +100,31 @@ async def search_and_download(
     if not rd_key:
         return {"status": "no_rd_key", "detail": "Real-Debrid API key not configured"}
 
-    # 2. Search nyaa.si
-    results = await search(title, trusted_only=False)
-    if not results:
+    # 2. Search nyaa.si. Direct requests may provide AniList title aliases
+    # (English/Romaji/native); try them in order before giving up.
+    aliases: list[str] = []
+    for value in search_titles or [title]:
+        alias = str(value or "").strip()
+        if alias and alias not in aliases:
+            aliases.append(alias)
+    if title not in aliases:
+        aliases.append(title)
+
+    candidates = []
+    saw_results = False
+    for alias in aliases:
+        results = await search(alias, trusted_only=False)
+        if not results:
+            continue
+        saw_results = True
+        ranked = rank_best(results, expected_title=alias)
+        if ranked:
+            candidates = ranked
+            break
+
+    if not saw_results:
         return {"status": "not_found", "detail": f'No torrents found for "{title}" on nyaa.si'}
 
-    candidates = rank_best(results, expected_title=title)
     if not candidates:
         return {"status": "not_found", "detail": f'No seedable torrents found for "{title}"'}
     batch_candidates = [candidate for candidate in candidates if candidate.is_batch]

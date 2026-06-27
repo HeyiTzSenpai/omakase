@@ -105,6 +105,65 @@ def test_search_and_download_uses_title_level_batch_preference():
     assert result["size"] == batch.size_display
 
 
+def test_search_and_download_tries_aliases_until_torrents_rank():
+    """Resolved AniList title aliases should be searched in order before giving up."""
+    from omakase.plus.automation import search_and_download
+
+    alias_batch = NyaaTorrent(
+        title="[GoodGroup] Golden Kamuy 3rd Season Complete [1080p][HEVC]",
+        magnet="magnet:?xt=urn:btih:ALIAS",
+        seeders=64,
+        leechers=4,
+        size_bytes=12_000_000_000,
+        size_display="11.2 GiB",
+        pub_date=datetime.now(timezone.utc),
+        is_trusted=False,
+        is_batch=True,
+    )
+    calls = {"searches": []}
+
+    class FakeRealDebridClient:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+
+        async def add_magnet(self, magnet: str) -> str | None:
+            assert magnet == alias_batch.magnet
+            return "rd-alias"
+
+        async def select_files(self, torrent_id: str, files: str = "all") -> bool:
+            assert torrent_id == "rd-alias"
+            assert files == "all"
+            return True
+
+    async def fake_search(title: str, trusted_only: bool = False):
+        calls["searches"].append(title)
+        assert trusted_only is False
+        if title == "Golden Kamuy Season 3":
+            return []
+        if title == "Golden Kamuy 3rd Season":
+            return [alias_batch]
+        raise AssertionError(f"unexpected alias search: {title}")
+
+    with (
+        patch("omakase.plus.automation.read_secret", return_value="rd-key"),
+        patch("omakase.plus.automation.search", side_effect=fake_search),
+        patch("omakase.plus.automation.RealDebridClient", new=FakeRealDebridClient),
+    ):
+        result = asyncio.run(
+            search_and_download(
+                db=None,
+                user_id=1,
+                title="Golden Kamuy Season 3",
+                search_titles=["Golden Kamuy Season 3", "Golden Kamuy 3rd Season"],
+            )
+        )
+
+    assert result["status"] == "ok"
+    assert result["rd_id"] == "rd-alias"
+    assert result["torrent_title"] == alias_batch.title
+    assert calls["searches"] == ["Golden Kamuy Season 3", "Golden Kamuy 3rd Season"]
+
+
 def test_search_and_download_falls_back_when_top_candidate_is_rejected_by_rd():
     """RD can reject one hash; Download should try the next ranked candidate."""
     from omakase.plus.automation import search_and_download

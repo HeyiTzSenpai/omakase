@@ -383,6 +383,49 @@ class TestFindBest:
             )
             assert find_best([torrent], expected_title="Berserk") is None
 
+    def test_explicit_season_number_detects_common_forms(self):
+        from omakase.plus import nyaa
+
+        assert nyaa._explicit_season_number("Berserk Season 2") == 2
+        assert nyaa._explicit_season_number("Berserk S2") == 2
+        assert nyaa._explicit_season_number("Golden Kamuy 3rd Season") == 3
+        assert nyaa._explicit_season_number("Berserk") is None
+
+    def test_specific_season_query_accepts_matching_short_title_season(self):
+        target = self._make_torrent("[GoodGroup] Berserk Season 2 [1080p][HEVC]", 80)
+        wrong = self._make_torrent("[GoodGroup] Berserk (1997) Complete [1080p]", 200)
+
+        best = find_best([wrong, target], expected_title="Berserk Season 2")
+
+        assert best is target
+
+    def test_specific_season_query_rejects_wrong_short_title_season(self):
+        wrong = self._make_torrent("[GoodGroup] Berserk Season 1 [1080p][HEVC]", 80)
+
+        assert find_best([wrong], expected_title="Berserk Season 2") is None
+
+    def test_explicit_part_query_rejects_wrong_part(self):
+        target = self._make_torrent(
+            "[SubsPlease] Attack on Titan The Final Season Part 2 - 01-12 [1080p]",
+            50,
+        )
+        wrong = self._make_torrent(
+            "[SubsPlease] Attack on Titan The Final Season Part 1 - 01-16 [1080p]",
+            120,
+        )
+
+        best = find_best([wrong, target], expected_title="Attack on Titan Final Season Part 2")
+
+        assert best is target
+
+    def test_explicit_cour_query_rejects_wrong_cour(self):
+        target = self._make_torrent("[GoodGroup] Spy x Family Cour 2 [1080p]", 80)
+        wrong = self._make_torrent("[GoodGroup] Spy x Family Cour 1 [1080p]", 120)
+
+        best = find_best([wrong, target], expected_title="Spy x Family Cour 2")
+
+        assert best is target
+
     def test_title_gate_keeps_matching_common_title_shapes(self):
         cases = [
             (

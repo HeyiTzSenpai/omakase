@@ -805,6 +805,18 @@ async def dashboard_plan(
     return RedirectResponse(url="/plus/dashboard", status_code=302)
 
 
+def _add_to_anilist_planning_best_effort(db, user_id: int, anilist_id: int) -> None:
+    client_id = os.getenv("ANILIST_CLIENT_ID", "")
+    client_secret = os.getenv("ANILIST_CLIENT_SECRET", "")
+    base_url = os.getenv("OMAKASE_PLUS_URL", "http://localhost:8765")
+    redirect_uri = f"{base_url}/plus/integrations/anilist/callback"
+    try:
+        with with_valid_token(db, user_id, client_id, client_secret, redirect_uri) as token:
+            add_to_planning(token, anilist_id, "PLANNING")
+    except (ValueError, httpx.HTTPError):
+        pass
+
+
 @router.post("/dashboard/unplan")
 async def dashboard_unplan(
     db=Depends(get_db),
@@ -820,14 +832,14 @@ async def dashboard_unplan(
     return RedirectResponse(url="/plus/dashboard", status_code=302)
 
 
-@router.post("/dashboard/download")
-async def dashboard_download(
-    db=Depends(get_db),
-    user=Depends(require_user),
-    anilist_id: int = Form(...),
-    title: str = Form(""),
-):
-    """Create a local planning target, then search nyaa.si and add to Real-Debrid."""
+async def _run_download_for_planning(
+    db,
+    user,
+    *,
+    anilist_id: int,
+    title: str,
+    search_titles: list[str] | None = None,
+) -> str:
     messages: list[str] = []
 
     existing = db.execute(
@@ -847,7 +859,13 @@ async def dashboard_download(
 
     from omakase.plus.automation import search_and_download
 
-    result = await search_and_download(db, user.id, title, planning_id=planning_id)
+    result = await search_and_download(
+        db,
+        user.id,
+        title,
+        planning_id=planning_id,
+        search_titles=search_titles,
+    )
 
     if result["status"] == "ok":
         rd_id = result.get("rd_id", "")
@@ -901,7 +919,58 @@ async def dashboard_download(
         )
         db.commit()
 
-    msg = " · ".join(messages)
+    return " · ".join(messages)
+
+
+@router.post("/dashboard/download")
+async def dashboard_download(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    anilist_id: int = Form(...),
+    title: str = Form(""),
+):
+    """Create a local planning target, then search nyaa.si and add to Real-Debrid."""
+    msg = await _run_download_for_planning(
+        db,
+        user,
+        anilist_id=anilist_id,
+        title=title,
+    )
+    return RedirectResponse(url=f"/plus/dashboard?error={quote(msg, safe='')}", status_code=302)
+
+
+@router.post("/dashboard/direct-download")
+async def dashboard_direct_download(
+    db=Depends(get_db),
+    user=Depends(require_user),
+    query: str = Form(""),
+    season: str = Form(""),
+):
+    """Resolve a known anime request, queue it locally, and start a Real-Debrid download."""
+    from omakase.plus.direct import resolve_direct_request
+
+    try:
+        target = resolve_direct_request(query, season=season)
+    except (ValueError, httpx.HTTPError) as e:
+        return RedirectResponse(
+            url=f"/plus/dashboard?error={quote(str(e), safe='')}",
+            status_code=302,
+        )
+
+    existing = db.execute(
+        "SELECT id FROM anilist_plannings WHERE user_id = ? AND anilist_id = ?",
+        (user.id, target.anilist_id),
+    ).fetchone()
+    if not existing:
+        _add_to_anilist_planning_best_effort(db, user.id, target.anilist_id)
+
+    msg = await _run_download_for_planning(
+        db,
+        user,
+        anilist_id=target.anilist_id,
+        title=target.title,
+        search_titles=target.search_titles,
+    )
     return RedirectResponse(url=f"/plus/dashboard?error={quote(msg, safe='')}", status_code=302)
 
 

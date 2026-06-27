@@ -10,7 +10,8 @@ import os
 import sqlite3
 import tempfile
 import time
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -178,12 +179,15 @@ class TestDashboardAccess:
 
             # Sections
             assert "Taste Profile" in html
+            assert "Add Anime" in html
             assert "Run Recommendation" in html
             assert "Recent Runs" in html
             assert "Planning Queue" in html
 
             # Form elements
             assert 'name="profile"' in html
+            assert 'name="query"' in html
+            assert 'name="season"' in html
             assert 'name="source"' in html
             assert 'name="username"' in html
             assert 'name="mode"' in html
@@ -192,6 +196,21 @@ class TestDashboardAccess:
             assert 'name="skip_profile"' in html
             assert 'name="use_planning"' in html
             assert 'name="model"' in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_renders_direct_download_card(self, client):
+        """The dashboard exposes a phone-friendly direct auto-download form."""
+        try:
+            _signup_and_login(client)
+
+            html = client.get("/plus/dashboard").text
+
+            assert "Add Anime" in html
+            assert 'action="/plus/dashboard/direct-download"' in html
+            assert 'name="query"' in html
+            assert 'name="season"' in html
+            assert "Add + Download" in html
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 
@@ -500,6 +519,133 @@ class TestDefaultAniListUsername:
 
 
 class TestPlanButton:
+    def test_direct_download_rejects_empty_query(self, client):
+        """Direct auto-download needs a title, AniList URL, or AniList ID."""
+        try:
+            _signup_and_login(client)
+
+            resp = client.post(
+                "/plus/dashboard/direct-download",
+                data={"query": "", "season": ""},
+                follow_redirects=False,
+            )
+
+            assert resp.status_code == 302
+            assert "Enter%20an%20anime%20title%20or%20AniList%20URL" in resp.headers["location"]
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_direct_download_creates_planning_and_passes_aliases(self, client):
+        """Direct requests resolve AniList media and feed aliases to the downloader."""
+        try:
+            _signup_and_login(client)
+            target = SimpleNamespace(
+                anilist_id=99699,
+                title="Golden Kamuy Season 3",
+                search_titles=["Golden Kamuy Season 3", "Golden Kamuy 3rd Season"],
+            )
+            token_context = MagicMock()
+            token_context.__enter__.return_value = "token"
+            download_mock = AsyncMock(
+                return_value={
+                    "status": "no_rd_key",
+                    "detail": "Real-Debrid API key not configured",
+                }
+            )
+
+            with (
+                patch(
+                    "omakase.plus.direct.resolve_direct_request", return_value=target
+                ) as resolve_mock,
+                patch("omakase.plus.routes.with_valid_token", return_value=token_context),
+                patch("omakase.plus.routes.add_to_planning") as add_mock,
+                patch("omakase.plus.automation.search_and_download", new=download_mock),
+            ):
+                resp = client.post(
+                    "/plus/dashboard/direct-download",
+                    data={"query": "Golden Kamuy", "season": "3"},
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            assert "Set%20Real-Debrid%20API%20key" in resp.headers["location"]
+            resolve_mock.assert_called_once_with("Golden Kamuy", season="3")
+            add_mock.assert_called_once_with("token", 99699, "PLANNING")
+            download_mock.assert_awaited_once()
+
+            with _connect_client_db(client) as conn:
+                row = conn.execute(
+                    """SELECT id, title, status, download_status
+                       FROM anilist_plannings
+                       WHERE user_id = ? AND anilist_id = ?""",
+                    (_user_id(client), 99699),
+                ).fetchone()
+
+            assert {key: row[key] for key in ("title", "status", "download_status")} == {
+                "title": "Golden Kamuy Season 3",
+                "status": "PLANNING",
+                "download_status": "no_rd_key",
+            }
+            assert download_mock.await_args.kwargs["planning_id"] == row["id"]
+            assert download_mock.await_args.kwargs["search_titles"] == [
+                "Golden Kamuy Season 3",
+                "Golden Kamuy 3rd Season",
+            ]
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_direct_download_reuses_existing_planning_row(self, client):
+        """Retrying a direct request should not duplicate the local queue row."""
+        try:
+            _signup_and_login(client)
+            user_id = _user_id(client)
+            with _connect_client_db(client) as conn:
+                conn.execute(
+                    """INSERT INTO anilist_plannings
+                       (user_id, anilist_id, title, status)
+                       VALUES (?, ?, ?, ?)""",
+                    (user_id, 21, "Cowboy Bebop", "PLANNING"),
+                )
+                conn.commit()
+
+            target = SimpleNamespace(
+                anilist_id=21,
+                title="Cowboy Bebop",
+                search_titles=["Cowboy Bebop"],
+            )
+            download_mock = AsyncMock(
+                return_value={
+                    "status": "not_found",
+                    "detail": 'No torrents found for "Cowboy Bebop"',
+                }
+            )
+
+            with (
+                patch("omakase.plus.direct.resolve_direct_request", return_value=target),
+                patch("omakase.plus.routes.add_to_planning") as add_mock,
+                patch("omakase.plus.automation.search_and_download", new=download_mock),
+            ):
+                resp = client.post(
+                    "/plus/dashboard/direct-download",
+                    data={"query": "https://anilist.co/anime/21/Cowboy-Bebop/"},
+                    follow_redirects=False,
+                )
+
+            assert resp.status_code == 302
+            add_mock.assert_not_called()
+            with _connect_client_db(client) as conn:
+                count = conn.execute(
+                    """SELECT COUNT(*) AS count
+                       FROM anilist_plannings
+                       WHERE user_id = ? AND anilist_id = ?""",
+                    (user_id, 21),
+                ).fetchone()["count"]
+
+            assert count == 1
+            assert download_mock.await_args.kwargs["search_titles"] == ["Cowboy Bebop"]
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
     def test_dashboard_cards_have_split_plan_and_download_actions(self, client):
         """Recommendation cards render separate Plan and Download form actions."""
         try:
