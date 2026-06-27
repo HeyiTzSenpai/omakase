@@ -18,8 +18,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, Form, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from omakase.engine import run as run_pipeline
@@ -46,9 +46,14 @@ from omakase.plus.secrets import delete_secret, read_secret, store_secret
 from omakase.types import OmakaseConfig, resolve_model_preset
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 router = APIRouter(prefix="/plus")
+_STATIC_ASSETS = {
+    "dashboard.css": "text/css",
+    "dashboard.js": "application/javascript",
+}
 
 # ── Rate limiting ───────────────────────────────────────────
 # Simple in-memory: {ip: [timestamp, ...]}
@@ -291,6 +296,17 @@ _ANILIST_ID_RE = re.compile(r"https://anilist\.co/anime/(\d+)/")
 _LANES = {"best_match", "new_seasons", "hidden_gems", "plan_list"}
 
 
+@router.get("/static/{asset_name}")
+async def plus_static_asset(asset_name: str):
+    media_type = _STATIC_ASSETS.get(asset_name)
+    if media_type is None:
+        raise HTTPException(status_code=404)
+    asset_path = _STATIC_DIR / asset_name
+    if not asset_path.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(asset_path, media_type=media_type)
+
+
 def _extract_anilist_id(url: str | None) -> int | None:
     """Extract AniList media ID from a recommendation URL, if possible."""
     if not url:
@@ -480,6 +496,18 @@ async def dashboard(
         for planning in plannings:
             planning["download_attempts"] = attempts_by_planning[planning["id"]]
 
+    dashboard_summary = {
+        "queue_total": len(plannings),
+        "queue_active": sum(1 for p in plannings if p["download_status"] == "requested"),
+        "queue_attention": sum(
+            1
+            for p in plannings
+            if p["download_status"] in {"not_found", "error", "rd_provider_block", "no_rd_key"}
+        ),
+        "runs_total": len(runs),
+        "profile_saved": bool(taste_profile_content.strip()),
+    }
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -495,6 +523,7 @@ async def dashboard(
             "current_run_lane": current_run_lane,
             "plannings": plannings,
             "planned_ids": planned_ids,
+            "dashboard_summary": dashboard_summary,
             "error": error,
         },
     )

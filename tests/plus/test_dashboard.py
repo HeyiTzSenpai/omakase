@@ -199,6 +199,41 @@ class TestDashboardAccess:
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 
+    def test_dashboard_references_external_assets(self, client):
+        """Dashboard CSS/JS is served as Plus static assets, not inline blocks."""
+        try:
+            _signup_and_login(client)
+
+            html = client.get("/plus/dashboard").text
+
+            assert 'href="/plus/static/dashboard.css"' in html
+            assert 'src="/plus/static/dashboard.js"' in html
+            assert "<style>" not in html
+            assert "<script>" not in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_plus_static_asset_route_serves_dashboard_css(self, client):
+        """The Plus router serves allowlisted packaged dashboard CSS."""
+        resp = client.get("/plus/static/dashboard.css")
+
+        assert resp.status_code == 200
+        assert "dashboard-shell" in resp.text
+        assert "text/css" in resp.headers["content-type"]
+
+    def test_plus_static_asset_route_serves_dashboard_js(self, client):
+        """The Plus router serves allowlisted packaged dashboard JavaScript."""
+        resp = client.get("/plus/static/dashboard.js")
+
+        assert resp.status_code == 200
+        assert "window.runRecs" in resp.text
+        assert "application/javascript" in resp.headers["content-type"]
+
+    def test_plus_static_asset_route_rejects_unknown_assets(self, client):
+        """Static assets are constrained to the packaged dashboard files."""
+        assert client.get("/plus/static/nope.css").status_code == 404
+        assert client.get("/plus/static/..%2F..%2Fpyproject.toml").status_code == 404
+
     def test_dashboard_renders_direct_download_card(self, client):
         """The dashboard exposes a phone-friendly direct auto-download form."""
         try:
@@ -211,6 +246,23 @@ class TestDashboardAccess:
             assert 'name="query"' in html
             assert 'name="season"' in html
             assert "Add + Download" in html
+        finally:
+            os.environ.pop("OMAKASE_PLUS_INVITE", None)
+
+    def test_dashboard_has_mobile_first_shell_and_priority_order(self, client):
+        """Dashboard markup exposes the new shell and phone-first section order."""
+        try:
+            _signup_and_login(client)
+
+            html = client.get("/plus/dashboard").text
+
+            assert 'class="dashboard-shell"' in html
+            assert 'class="hero-panel"' in html
+            assert 'class="quick-stats"' in html
+            assert html.index("Add Anime") < html.index("Run Recommendation")
+            assert html.index("Run Recommendation") < html.index("Tonight's Tasting Menu")
+            assert html.index("Planning Queue") < html.index("Taste Profile")
+            assert html.index("Taste Profile") < html.index("Recent Runs")
         finally:
             os.environ.pop("OMAKASE_PLUS_INVITE", None)
 

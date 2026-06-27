@@ -3,600 +3,338 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Omakase Plus — Dashboard</title>
+<title>Omakase Plus &mdash; Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>
-:root {
-  --bg: #0A0612; --surface: #14092A; --surface-hi: #1E0F3D;
-  --border: #2A1A4D; --border-hi: #3D2670;
-  --purple: #7C3AED; --purple-bright: #A855F7; --purple-glow: #C084FC;
-  --text: #F5F3FF; --text2: #C4B5E8; --text3: #8B7BB8;
-  --green: #A7F3D0; --yellow: #FCD34D; --red: #FCA5A5;
-}
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{
-  background:var(--bg);color:var(--text);
-  font-family:'Inter',ui-sans-serif,system-ui,sans-serif;font-size:16px;
-  line-height:1.6;-webkit-font-smoothing:antialiased;min-height:100vh;
-}
-h2{font-family:'Zen Kaku Gothic New',ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:1.25rem;letter-spacing:-0.01em}
-.container{max-width:860px;margin:0 auto;padding:2rem 1.5rem 4rem}
-
-/* Header */
-.header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:1px solid var(--border)}
-.header h1{font-family:'Zen Kaku Gothic New',sans-serif;font-weight:900;font-size:1.35rem;letter-spacing:-0.02em;background:linear-gradient(135deg,var(--purple-glow),var(--purple-bright));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.header .user{display:flex;align-items:center;gap:0.75rem;font-size:0.82rem;color:var(--text2)}
-.header .user a,.header .user button{color:var(--text3);text-decoration:none;background:none;border:none;font-size:0.78rem;cursor:pointer;font-family:inherit;padding:0.25rem 0.5rem;border-radius:4px;transition:all var(--dur-hover,150ms) ease}
-.header .user a:hover,.header .user button:hover{color:var(--text);background:var(--surface-hi)}
-
-/* Cards */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1.25rem;margin-bottom:1rem}
-.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem}
-.section-header{display:flex;justify-content:space-between;align-items:baseline;margin:2rem 0 0.75rem}
-
-/* Forms */
-.field{margin-bottom:1rem}
-.field label{display:block;font-size:0.8rem;color:var(--text2);margin-bottom:0.25rem;font-weight:500}
-.field input,.field textarea,.field select{
-  width:100%;padding:0.6rem 0.75rem;background:var(--bg);border:1px solid var(--border);
-  color:var(--text);border-radius:6px;font-size:0.9rem;font-family:inherit;
-  transition:border-color var(--dur-hover,150ms) ease;
-}
-.field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:var(--purple);box-shadow:0 0 0 3px rgba(124,58,237,0.15)}
-.field textarea{min-height:140px;resize:vertical;font-family:'JetBrains Mono',monospace;font-size:0.82rem;line-height:1.5}
-.field-row{display:flex;gap:0.75rem;flex-wrap:wrap}
-.field-row .field{flex:1;min-width:120px}
-.field-hint{font-size:0.72rem;color:var(--text3);margin-top:0.25rem}
-.checkbox-row{display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text2)}
-.checkbox-row input[type=checkbox]{width:auto}
-.lane-control{display:flex;flex-wrap:wrap;gap:0.45rem;margin-bottom:0.75rem}
-.lane-option{position:relative;display:inline-flex;align-items:center;cursor:pointer}
-.lane-option input{position:absolute;inset:0;opacity:0;cursor:pointer}
-.lane-option span{display:inline-flex;align-items:center;min-height:2.15rem;padding:0.42rem 0.72rem;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text2);font-size:0.78rem;font-weight:600;line-height:1.25;transition:all var(--dur-hover,150ms) ease}
-.lane-option input:checked + span{background:rgba(124,58,237,0.18);border-color:var(--purple);color:var(--text)}
-.lane-option input:focus-visible + span{outline:2px solid var(--purple-glow);outline-offset:2px}
-.lane-option:hover span{border-color:var(--border-hi);color:var(--text)}
-
-/* Buttons */
-.btn{
-  display:inline-flex;align-items:center;gap:0.4rem;padding:0.55rem 1.1rem;
-  border-radius:7px;font-size:0.85rem;font-weight:600;cursor:pointer;
-  border:none;font-family:inherit;transition:all var(--dur-hover,150ms) ease;
-  text-decoration:none;line-height:1.4;
-}
-.btn-primary{background:var(--purple);color:#fff}
-.btn-primary:hover{background:var(--purple-bright);box-shadow:0 0 20px rgba(124,58,237,0.3)}
-.btn-secondary{background:var(--surface-hi);color:var(--text2);border:1px solid var(--border)}
-.btn-secondary:hover{background:var(--border);color:var(--text)}
-.btn-small{padding:0.3rem 0.7rem;font-size:0.78rem;border-radius:5px}
-.btn-ghost{background:none;border:1px solid var(--border);color:var(--text3);padding:0.3rem 0.7rem;font-size:0.75rem;border-radius:5px;cursor:pointer;font-family:inherit}
-.btn-ghost:hover{background:var(--surface-hi);color:var(--text)}
-
-/* Badges */
-.badge{font-size:0.7rem;padding:0.15rem 0.55rem;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;display:inline-block}
-.badge-green{background:rgba(167,243,208,0.12);color:var(--green)}
-.badge-yellow{background:rgba(252,211,77,0.12);color:var(--yellow)}
-.badge-red{background:rgba(252,165,165,0.12);color:var(--red)}
-.badge-purple{background:rgba(196,132,252,0.12);color:var(--purple-glow)}
-.badge-gray{background:rgba(139,123,184,0.12);color:var(--text3)}
-.queue-detail{margin-top:0.35rem;max-width:18rem;color:var(--text3);font-size:0.72rem;line-height:1.35;overflow-wrap:anywhere}
-.download-attempts{margin-top:0.45rem;color:var(--text3);font-size:0.72rem}
-.download-attempts summary{cursor:pointer;color:var(--text2);font-weight:600}
-.attempt-list{display:grid;gap:0.35rem;margin-top:0.35rem}
-.attempt-item{padding:0.45rem;border:1px solid var(--border);border-radius:6px;background:rgba(10,6,18,0.55)}
-.attempt-head{display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap}
-.attempt-title{margin-top:0.25rem;color:var(--text2);line-height:1.35;overflow-wrap:anywhere}
-.attempt-meta{margin-top:0.18rem;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:0.65rem;line-height:1.35;overflow-wrap:anywhere}
-.queue-actions{display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap}
-.planning-queue-card{padding:0.5rem;overflow-x:auto}
-
-/* Rec cards */
-.rec-card{background:var(--surface-hi);border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:0.6rem;transition:border-color var(--dur-hover,150ms) ease}
-.rec-card:hover{border-color:var(--border-hi)}
-.rec-card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:0.75rem;margin-bottom:0.4rem}
-.rec-card .title{font-family:'Zen Kaku Gothic New',sans-serif;font-weight:700;font-size:1rem;color:var(--text)}
-.rec-card .score{font-family:'JetBrains Mono',monospace;font-size:0.82rem;font-weight:600;padding:0.2rem 0.5rem;border-radius:4px;white-space:nowrap}
-.score-high{background:rgba(167,243,208,0.12);color:var(--green)}
-.score-mid{background:rgba(252,211,77,0.12);color:var(--yellow)}
-.score-low{background:rgba(252,165,165,0.12);color:var(--red)}
-.rec-card .reasoning{font-size:0.82rem;color:var(--text2);margin-bottom:0.5rem;line-height:1.5}
-.rec-card .match{font-size:0.75rem;color:var(--text3)}
-.title-link{text-decoration:none}
-.title-link:hover{color:var(--purple-glow)}
-.rec-chips{display:flex;flex-wrap:wrap;gap:0.35rem;margin:0.15rem 0 0.5rem}
-.rec-chip{display:inline-flex;align-items:center;max-width:100%;padding:0.18rem 0.55rem;border:1px solid var(--border);border-radius:5px;background:rgba(139,123,184,0.1);color:var(--text2);font-size:0.7rem;font-weight:600;line-height:1.35}
-.rec-chip-warning{border-color:rgba(252,211,77,0.22);background:rgba(252,211,77,0.1);color:var(--yellow)}
-.rec-actions{margin-top:0.65rem;display:flex;gap:0.45rem;align-items:center;flex-wrap:wrap}
-.rec-primary-actions,.feedback-actions{display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap}
-.feedback-actions{margin-left:auto}
-.btn-feedback:disabled{opacity:0.75;cursor:default}
-
-/* Runs */
-.run-item{display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:0.4rem;cursor:pointer;font-size:0.82rem;transition:background var(--dur-hover,150ms)}
-.run-item:hover{background:var(--surface-hi)}
-.run-item .run-date{color:var(--text3);font-size:0.72rem;white-space:nowrap}
-.run-item .run-meta{color:var(--text2);flex:1}
-.run-item .run-count{font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--purple-glow)}
-
-/* Table */
-table{width:100%;border-collapse:collapse;font-size:0.82rem}
-th{text-align:left;padding:0.5rem 0.75rem;color:var(--text3);font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border)}
-td{padding:0.5rem 0.75rem;border-bottom:1px solid rgba(42,26,77,0.5);color:var(--text2)}
-td a{color:var(--purple-bright);text-decoration:none}
-td a:hover{color:var(--purple-glow)}
-tr:hover td{background:rgba(124,58,237,0.04)}
-
-/* Messages */
-.msg{background:rgba(252,165,165,0.08);border:1px solid rgba(252,165,165,0.2);color:var(--red);padding:0.6rem 1rem;border-radius:6px;font-size:0.82rem;margin-bottom:1rem}
-.msg--ok{background:rgba(167,243,208,0.08);border:1px solid rgba(167,243,208,0.2);color:var(--green)}
-.empty{text-align:center;padding:3rem 1rem;color:var(--text3);font-size:0.9rem}
-.btn-remove{background:none;border:1px solid rgba(252,165,165,0.25);color:var(--red);padding:0.15rem 0.5rem;font-size:0.68rem;border-radius:4px;cursor:pointer;font-family:inherit;margin-left:0.3rem}
-.btn-remove:hover{background:rgba(252,165,165,0.1)}
-
-/* Loading — matches public omakase site */
-.loading{display:none;flex-direction:column;align-items:center;gap:0.75rem;padding:2.5rem 1rem}
-.loading.active{display:flex}
-.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--purple);border-radius:50%;animation:spin 0.8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.loading-text{font-size:0.9rem;color:var(--text2)}
-.loading-meta{font-size:0.72rem;color:var(--text3)}
-@media (max-width:560px){
-  .lane-option{flex:1 1 calc(50% - 0.45rem)}
-  .lane-option span{width:100%;justify-content:center;text-align:center}
-  .feedback-actions{margin-left:0;width:100%}
-  .planning-queue-card{overflow-x:visible}
-  .planning-queue-card table,
-  .planning-queue-card tbody,
-  .planning-queue-card tr,
-  .planning-queue-card td{display:block;width:100%}
-  .planning-queue-card thead{display:none}
-  .planning-queue-card tr{padding:0.85rem 0;border-bottom:1px solid var(--border)}
-  .planning-queue-card tr:last-child{border-bottom:0}
-  .planning-queue-card td{padding:0.45rem 0;border-bottom:0}
-  .planning-queue-card td::before{content:attr(data-label);display:block;margin-bottom:0.22rem;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em}
-  .planning-queue-card .queue-detail{max-width:none}
-}
-</style>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/plus/static/dashboard.css">
+<script src="/plus/static/dashboard.js" defer></script>
 </head>
 <body>
-<div class="container">
+<main class="dashboard-shell">
+  <header class="dashboard-topbar">
+    <div class="brand-stack">
+      <span class="eyebrow">Private Plus</span>
+      <h1>Omakase Plus</h1>
+    </div>
+    <div class="account-actions" aria-label="Account">
+      <span class="account-email">{{ email }}</span>
+      <a class="topbar-link" href="/plus/settings">Settings</a>
+      <form class="inline-form" method="post" action="/plus/logout">
+        <button class="topbar-button" type="submit">Log out</button>
+      </form>
+    </div>
+    <div class="quick-stats" aria-label="Dashboard status">
+      <span class="stat-chip"><strong>{{ dashboard_summary.queue_total }}</strong> queued</span>
+      <span class="stat-chip stat-chip-active"><strong>{{ dashboard_summary.queue_active }}</strong> active</span>
+      <span class="stat-chip {% if dashboard_summary.queue_attention %}stat-chip-alert{% endif %}"><strong>{{ dashboard_summary.queue_attention }}</strong> attention</span>
+    </div>
+  </header>
 
-<!-- Header -->
-<div class="header">
-  <h1>Omakase Plus</h1>
-  <div class="user">
-    {{ email }}
-    <a href="/plus/settings">Settings</a>
-    <form method="post" action="/plus/logout" style="display:inline">
-      <button type="submit">Log out</button>
-    </form>
-  </div>
-</div>
-
-{% if error %}
-<div class="msg {% if 'Removed' in error or 'Planned' in error or 'Downloading' in error %}msg--ok{% endif %}">{{ error }}</div>
-{% endif %}
-
-<!-- Direct Auto-Download -->
-<div class="card">
-  <h2 style="margin-bottom:0.75rem">Add Anime</h2>
-  <form method="post" action="/plus/dashboard/direct-download">
-    <div class="field">
-      <label>Anime or AniList URL</label>
-      <input type="text" name="query" placeholder="Golden Kamuy or https://anilist.co/anime/99699/" autocomplete="off">
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Season / arc (optional)</label>
-        <input type="text" name="season" placeholder="3 or Final Season Part 2">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-primary">Add + Download</button>
-  </form>
-</div>
-
-<!-- Taste Profile -->
-<div class="card">
-  <div class="card-header">
-    <h2>Taste Profile</h2>
-    {% if taste_profile_updated %}
-    <span style="font-size:0.7rem;color:var(--text3)">Updated {{ taste_profile_updated }}</span>
-    {% endif %}
-  </div>
-  <form method="post" action="/plus/dashboard/profile">
-    <div class="field">
-      <textarea name="profile" placeholder="## Things I love&#10;- Morally complex protagonists&#10;- Dense world-building&#10;&#10;## Things I bounce off&#10;- ...&#10;&#10;## Characters that resonate&#10;- [Character] — [why]&#10;&#10;## Recent loves (don't recommend these)&#10;- [Title you scored highly]">{{ taste_profile }}</textarea>
-      <div class="field-hint">Markdown. Be specific — mention shows, characters, studios. This is what makes the LLM understand you.</div>
-    </div>
-    <button type="submit" class="btn btn-primary">Save Profile</button>
-  </form>
-</div>
-
-<!-- Run Recommendation -->
-<div class="card">
-  <h2 style="margin-bottom:0.75rem">Run Recommendation</h2>
-  <form id="run-form" onsubmit="return runRecs(event)">
-    <div class="field">
-      <label>Lane</label>
-      <div class="lane-control" role="group" aria-label="Recommendation lane">
-        <label class="lane-option">
-          <input type="radio" name="lane" value="best_match" {% if current_run_lane == 'best_match' %}checked{% endif %}>
-          <span>Best Match</span>
-        </label>
-        <label class="lane-option">
-          <input type="radio" name="lane" value="new_seasons" {% if current_run_lane == 'new_seasons' %}checked{% endif %}>
-          <span>New Seasons</span>
-        </label>
-        <label class="lane-option">
-          <input type="radio" name="lane" value="hidden_gems" {% if current_run_lane == 'hidden_gems' %}checked{% endif %}>
-          <span>Hidden Gems</span>
-        </label>
-        <label class="lane-option">
-          <input type="radio" name="lane" value="plan_list" {% if current_run_lane == 'plan_list' %}checked{% endif %}>
-          <span>Plan List</span>
-        </label>
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Source</label>
-        <select name="source" id="run-source">
-          <option value="anilist">AniList</option>
-          <option value="myanimelist">MyAnimeList</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Username</label>
-        <input type="text" name="username" id="run-username" placeholder="AniList username" value="{{ anilist_username }}">
-      </div>
-      <div class="field">
-        <label>Count</label>
-        <input type="number" name="count" id="run-count" value="8" min="3" max="15">
-      </div>
-      <div class="field">
-        <label>Mode</label>
-        <select name="mode" id="run-mode">
-          <option value="fast">Fast</option>
-          <option value="pro">Pro</option>
-        </select>
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Temperature</label>
-        <input type="range" name="temperature" id="run-temp" min="0.1" max="1.0" step="0.1" value="0.4" style="padding:0">
-        <div class="field-hint">0.4 — focused picks</div>
-      </div>
-      <div class="field">
-        <label>Model override</label>
-        <input type="text" name="model" id="run-model" placeholder="Auto (leave blank)">
-      </div>
-    </div>
-    <div class="field-row" style="margin-bottom:0.75rem">
-      <label class="checkbox-row"><input type="checkbox" name="use_planning" id="run-planning" value="true">Use Plan to Watch</label>
-      <label class="checkbox-row"><input type="checkbox" name="skip_profile" id="run-skip" value="true">Skip profile (broader recs)</label>
-    </div>
-    <button type="submit" class="btn btn-primary" id="run-btn">Run Recommendation</button>
-  </form>
-  <div id="results-list"></div>
-  <div class="loading" id="loading">
-    <div class="spinner"></div>
-    <div class="loading-text" id="loading-text">Asking the LLM to pair your tasting menu...</div>
-    <div class="loading-meta"><span id="loading-elapsed">0s</span> &middot; Pro mode with reasoning models can take 1-2 minutes</div>
-  </div>
-  <div class="msg" id="run-error" style="display:none"></div>
-</div>
-
-<!-- Results -->
-{% if current_run_picks %}
-<div class="section-header"><h2>Tonight's Tasting Menu</h2></div>
-{% for pick in current_run_picks %}
-<div class="rec-card">
-  <div class="top">
-    {% if pick.url %}
-    <a class="title title-link" href="{{ pick.url }}" target="_blank" rel="noopener noreferrer">{{ pick.title }}</a>
-    {% else %}
-    <div class="title">{{ pick.title }}</div>
-    {% endif %}
-    {% set score = pick.predicted_score | float %}
-    <span class="score {% if score >= 8 %}score-high{% elif score >= 6 %}score-mid{% else %}score-low{% endif %}">{{ score }}/10</span>
-  </div>
-  {% if pick.airing_status or pick.franchise_note or pick.sequence_warning %}
-  <div class="rec-chips">
-    {% if pick.airing_status == 'RELEASING' or pick.airing_status == 'FINISHED' %}
-    <span class="badge badge-purple">{{ pick.airing_status }}</span>
-    {% endif %}
-    {% if pick.franchise_note %}
-    <span class="rec-chip">{{ pick.franchise_note }}</span>
-    {% endif %}
-    {% if pick.sequence_warning %}
-    <span class="rec-chip rec-chip-warning">{{ pick.sequence_warning }}</span>
-    {% endif %}
-  </div>
+  {% if error %}
+  <div class="message {% if 'Removed' in error or 'Planned' in error or 'Downloading' in error %}message-ok{% endif %}" role="status">{{ error }}</div>
   {% endif %}
-  <div class="reasoning">{{ pick.reasoning }}</div>
-  {% if pick.best_match_from_history %}
-  <div class="match">Pairs with: <strong>{{ pick.best_match_from_history }}</strong></div>
-  {% endif %}
-  <div class="rec-actions">
-    <div class="rec-primary-actions">
-    {% set aid = pick.anilist_id %}
-    {% if aid and aid in planned_ids %}
-    <span class="badge badge-green">Planned</span>
-    <form method="post" action="/plus/dashboard/remove-plan" style="display:inline">
-      <input type="hidden" name="anilist_id" value="{{ aid }}">
-      <button type="submit" class="btn-remove">Remove</button>
-    </form>
-    {% elif aid %}
-    <form method="post" action="/plus/dashboard/plan" style="display:inline">
-      <input type="hidden" name="anilist_id" value="{{ aid }}">
-      <input type="hidden" name="title" value="{{ pick.title }}">
-      <button type="submit" class="btn btn-primary btn-small">Plan</button>
-    </form>
-    <form method="post" action="/plus/dashboard/download" style="display:inline">
-      <input type="hidden" name="anilist_id" value="{{ aid }}">
-      <input type="hidden" name="title" value="{{ pick.title }}">
-      <button type="submit" class="btn btn-secondary btn-small">Download</button>
-    </form>
-    {% endif %}
-    </div>
-    <div class="feedback-actions" data-title="{{ pick.title }}" data-source="{{ pick.source or current_run_source or 'anilist' }}" data-media-id="{{ pick.media_id or aid or '' }}" data-run-id="{{ current_run_id }}">
-      <button type="button" class="btn btn-ghost btn-feedback" data-feedback="interested">Interested</button>
-      <button type="button" class="btn btn-ghost btn-feedback" data-feedback="not_for_me">Pass</button>
-      <button type="button" class="btn btn-ghost btn-feedback" data-feedback="wrong_sequel">Wrong sequel</button>
-      <button type="button" class="btn btn-ghost btn-feedback" data-feedback="already_watched">Seen</button>
-    </div>
-  </div>
-</div>
-{% endfor %}
-{% endif %}
 
-<!-- Recent Runs -->
-{% if runs %}
-<div class="section-header"><h2>Recent Runs</h2></div>
-{% for r in runs %}
-<div class="run-item">
-  <span class="run-date">{{ r.created_at }}</span>
-  <span class="run-meta">{{ r.source }} &middot; {{ r.model }}</span>
-  <span class="run-count">{{ r.picks | length }} picks</span>
-  <a href="?run={{ r.id }}" class="btn btn-ghost">View</a>
-</div>
-{% endfor %}
-{% endif %}
+  <section class="hero-panel" aria-labelledby="add-anime-title">
+    <div class="section-title">
+      <div>
+        <span class="section-kicker">Queue command</span>
+        <h2 id="add-anime-title">Add Anime</h2>
+      </div>
+      <span class="summary-pill">{{ dashboard_summary.queue_total }} in queue</span>
+    </div>
+    <form class="dashboard-form add-form" method="post" action="/plus/dashboard/direct-download">
+      <div class="field">
+        <label for="direct-query">Anime or AniList URL</label>
+        <input id="direct-query" type="text" name="query" placeholder="Golden Kamuy or https://anilist.co/anime/99699/" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="direct-season">Season / arc</label>
+        <input id="direct-season" type="text" name="season" placeholder="3 or Final Season Part 2">
+      </div>
+      <button type="submit" class="btn btn-primary">Add + Download</button>
+    </form>
+  </section>
 
-<!-- Planning Queue -->
-<div class="section-header"><h2>Planning Queue</h2></div>
-{% if plannings %}
-<div class="card planning-queue-card">
-  <table>
-    <thead><tr><th>Title</th><th>AniList</th><th>RD</th><th>Added</th><th></th></tr></thead>
-    <tbody>
-    {% for p in plannings %}
-    <tr>
-      <td data-label="Title"><a href="https://anilist.co/anime/{{ p.anilist_id }}/" target="_blank" rel="noopener">{{ p.title }}</a></td>
-      <td data-label="AniList">{% if p.planning_status == 'PLANNING' %}<span class="badge badge-green">Planned</span>{% else %}<span class="badge badge-gray">{{ p.planning_status }}</span>{% endif %}</td>
-      <td data-label="RD">
-        {% if p.download_status == 'requested' %}
-        <span class="badge badge-purple" title="{{ p.download_info }}">Downloading</span>
-        {% elif p.download_status == 'not_found' %}
-        <span class="badge badge-yellow">Not found</span>
-        {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
-        {% elif p.download_status == 'no_rd_key' %}
-        <span class="badge badge-gray">No RD key</span>
-        {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
-        {% elif p.download_status == 'rd_provider_block' %}
-        <span class="badge badge-yellow" title="{{ p.download_info }}">RD blocked</span>
-        {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
-        {% elif p.download_status == 'error' %}
-        <span class="badge badge-red">Error</span>
-        {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
-        {% else %}
-        <span style="color:var(--text3);font-size:0.72rem">—</span>
-        {% endif %}
-        {% if p.download_attempts %}
-        <details class="download-attempts">
-          <summary>RD attempts</summary>
-          <div class="attempt-list">
-            {% for a in p.download_attempts %}
-            <div class="attempt-item">
-              <div class="attempt-head">
-                <span class="badge {{ a.badge_class }}">{{ a.status_label }}</span>
-                <span class="attempt-meta">#{{ a.candidate_rank }}/{{ a.total_candidates }}{% if a.response_label %} &middot; {{ a.response_label }}{% endif %}</span>
-              </div>
-              <div class="attempt-title">{{ a.torrent_title }}</div>
-              <div class="attempt-meta">
-                {{ a.seeders }}s &middot; {{ a.size_display }}{% if a.is_batch %} &middot; batch{% endif %}{% if a.torrent_hash %} &middot; {{ a.torrent_hash }}{% endif %}
-              </div>
-              {% if a.detail %}<div class="queue-detail">{{ a.detail }}</div>{% endif %}
-            </div>
-            {% endfor %}
-          </div>
-        </details>
-        {% endif %}
-      </td>
-      <td data-label="Added" style="color:var(--text3);font-size:0.78rem">{{ p.added_at }}</td>
-      <td data-label="Actions">
-        <div class="queue-actions">
-          {% if p.download_status in ['', 'not_found', 'error', 'rd_provider_block', 'no_rd_key'] %}
-          <form method="post" action="/plus/dashboard/download" style="display:inline">
-            <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
-            <input type="hidden" name="title" value="{{ p.title }}">
-            <button type="submit" class="btn btn-secondary btn-small">{{ 'Download' if not p.download_status else 'Retry' }}</button>
-          </form>
-          {% endif %}
-          <form method="post" action="/plus/dashboard/remove-plan" style="display:inline">
-            <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
-            <button type="submit" class="btn btn-ghost" style="font-size:0.7rem;padding:0.2rem 0.5rem">Remove</button>
-          </form>
+  <section class="panel run-panel" aria-labelledby="run-title">
+    <div class="section-title">
+      <div>
+        <span class="section-kicker">Recommendation lane</span>
+        <h2 id="run-title">Run Recommendation</h2>
+      </div>
+    </div>
+    <form id="run-form" class="dashboard-form run-form">
+      <fieldset class="lane-field">
+        <legend>Lane</legend>
+        <div class="lane-grid" role="group" aria-label="Recommendation lane">
+          <label class="lane-option">
+            <input type="radio" name="lane" value="best_match" {% if current_run_lane == 'best_match' %}checked{% endif %}>
+            <span>Best Match</span>
+          </label>
+          <label class="lane-option">
+            <input type="radio" name="lane" value="new_seasons" {% if current_run_lane == 'new_seasons' %}checked{% endif %}>
+            <span>New Seasons</span>
+          </label>
+          <label class="lane-option">
+            <input type="radio" name="lane" value="hidden_gems" {% if current_run_lane == 'hidden_gems' %}checked{% endif %}>
+            <span>Hidden Gems</span>
+          </label>
+          <label class="lane-option">
+            <input type="radio" name="lane" value="plan_list" {% if current_run_lane == 'plan_list' %}checked{% endif %}>
+            <span>Plan List</span>
+          </label>
         </div>
-      </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% else %}
-<div class="empty">No anime planned yet. Run recommendations and use <strong>Plan</strong> or <strong>Download</strong> on results.</div>
-{% endif %}
+      </fieldset>
+      <div class="form-grid">
+        <div class="field">
+          <label for="run-source">Source</label>
+          <select name="source" id="run-source">
+            <option value="anilist">AniList</option>
+            <option value="myanimelist">MyAnimeList</option>
+          </select>
+        </div>
+        <div class="field field-wide">
+          <label for="run-username">Username</label>
+          <input type="text" name="username" id="run-username" placeholder="AniList username" value="{{ anilist_username }}">
+        </div>
+        <div class="field">
+          <label for="run-count">Count</label>
+          <input type="number" name="count" id="run-count" value="8" min="3" max="15">
+        </div>
+        <div class="field">
+          <label for="run-mode">Mode</label>
+          <select name="mode" id="run-mode">
+            <option value="fast">Fast</option>
+            <option value="pro">Pro</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="run-temp">Temperature</label>
+          <input class="range-input" type="range" name="temperature" id="run-temp" min="0.1" max="1.0" step="0.1" value="0.4">
+        </div>
+        <div class="field field-wide">
+          <label for="run-model">Model override</label>
+          <input type="text" name="model" id="run-model" placeholder="Auto">
+        </div>
+      </div>
+      <div class="toggle-row">
+        <label class="checkbox-row"><input type="checkbox" name="use_planning" id="run-planning" value="true">Use Plan to Watch</label>
+        <label class="checkbox-row"><input type="checkbox" name="skip_profile" id="run-skip" value="true">Skip profile</label>
+      </div>
+      <button type="submit" class="btn btn-primary" id="run-btn">Run Recommendation</button>
+    </form>
+    <div class="loading-state" id="loading" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="loading-copy">
+        <span class="loading-text" id="loading-text">Asking the LLM to pair your tasting menu...</span>
+        <span class="loading-meta"><span id="loading-elapsed">0s</span> &middot; Pro mode can take 1-2 minutes</span>
+      </div>
+    </div>
+    <div class="message" id="run-error" role="alert" hidden></div>
+  </section>
 
-</div>
-<script>
-let _loadingTimer = null;
-let _loadingStart = 0;
+  <section class="panel results-panel" aria-labelledby="results-title">
+    <div class="section-title">
+      <div>
+        <span class="section-kicker">Current picks</span>
+        <h2 id="results-title">Tonight's Tasting Menu</h2>
+      </div>
+      {% if current_run_picks %}
+      <span class="summary-pill">{{ current_run_picks | length }} picks</span>
+      {% endif %}
+    </div>
+    <div id="results-list"></div>
+    {% if current_run_picks %}
+    <div class="rec-list">
+      {% for pick in current_run_picks %}
+      <article class="rec-card">
+        <div class="rec-card-top">
+          {% if pick.url %}
+          <a class="rec-title title-link" href="{{ pick.url }}" target="_blank" rel="noopener noreferrer">{{ pick.title }}</a>
+          {% else %}
+          <h3 class="rec-title">{{ pick.title }}</h3>
+          {% endif %}
+          {% set score = pick.predicted_score | float %}
+          <span class="score {% if score >= 8 %}score-high{% elif score >= 6 %}score-mid{% else %}score-low{% endif %}">{{ score }}/10</span>
+        </div>
+        {% if pick.airing_status or pick.franchise_note or pick.sequence_warning %}
+        <div class="rec-chips">
+          {% if pick.airing_status == 'RELEASING' or pick.airing_status == 'FINISHED' %}
+          <span class="badge badge-purple">{{ pick.airing_status }}</span>
+          {% endif %}
+          {% if pick.franchise_note %}
+          <span class="rec-chip">{{ pick.franchise_note }}</span>
+          {% endif %}
+          {% if pick.sequence_warning %}
+          <span class="rec-chip rec-chip-warning">{{ pick.sequence_warning }}</span>
+          {% endif %}
+        </div>
+        {% endif %}
+        <p class="reasoning">{{ pick.reasoning }}</p>
+        {% if pick.best_match_from_history %}
+        <p class="match">Pairs with: <strong>{{ pick.best_match_from_history }}</strong></p>
+        {% endif %}
+        <div class="rec-actions">
+          <div class="rec-primary-actions">
+            {% set aid = pick.anilist_id %}
+            {% if aid and aid in planned_ids %}
+            <span class="badge badge-green">Planned</span>
+            <form class="inline-form" method="post" action="/plus/dashboard/remove-plan">
+              <input type="hidden" name="anilist_id" value="{{ aid }}">
+              <button type="submit" class="btn-remove">Remove</button>
+            </form>
+            {% elif aid %}
+            <form class="inline-form" method="post" action="/plus/dashboard/plan">
+              <input type="hidden" name="anilist_id" value="{{ aid }}">
+              <input type="hidden" name="title" value="{{ pick.title }}">
+              <button type="submit" class="btn btn-primary btn-small">Plan</button>
+            </form>
+            <form class="inline-form" method="post" action="/plus/dashboard/download">
+              <input type="hidden" name="anilist_id" value="{{ aid }}">
+              <input type="hidden" name="title" value="{{ pick.title }}">
+              <button type="submit" class="btn btn-secondary btn-small">Download</button>
+            </form>
+            {% endif %}
+          </div>
+          <div class="feedback-actions" data-title="{{ pick.title }}" data-source="{{ pick.source or current_run_source or 'anilist' }}" data-media-id="{{ pick.media_id or aid or '' }}" data-run-id="{{ current_run_id }}">
+            <button type="button" class="btn btn-ghost btn-feedback" data-feedback="interested">Interested</button>
+            <button type="button" class="btn btn-ghost btn-feedback" data-feedback="not_for_me">Pass</button>
+            <button type="button" class="btn btn-ghost btn-feedback" data-feedback="wrong_sequel">Wrong sequel</button>
+            <button type="button" class="btn btn-ghost btn-feedback" data-feedback="already_watched">Seen</button>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">No tasting menu loaded yet.</div>
+    {% endif %}
+  </section>
 
-async function runRecs(e) {
-  e.preventDefault();
-  const btn = document.getElementById('run-btn');
-  const loading = document.getElementById('loading');
-  const err = document.getElementById('run-error');
-  err.style.display = 'none';
-  btn.disabled = true;
-  loading.classList.add('active');
-  _loadingStart = Date.now();
-  _loadingTimer = setInterval(_tick, 1000);
-  _tick();
+  <section class="panel queue-panel" aria-labelledby="queue-title">
+    <div class="section-title">
+      <div>
+        <span class="section-kicker">Plan and download</span>
+        <h2 id="queue-title">Planning Queue</h2>
+      </div>
+      <span class="summary-pill">{{ dashboard_summary.queue_total }} rows</span>
+    </div>
+    {% if plannings %}
+    <div class="planning-queue-card">
+      <table class="queue-table">
+        <thead><tr><th>Title</th><th>AniList</th><th>RD</th><th>Added</th><th>Actions</th></tr></thead>
+        <tbody>
+        {% for p in plannings %}
+        <tr>
+          <td data-label="Title"><a href="https://anilist.co/anime/{{ p.anilist_id }}/" target="_blank" rel="noopener">{{ p.title }}</a></td>
+          <td data-label="AniList">{% if p.planning_status == 'PLANNING' %}<span class="badge badge-green">Planned</span>{% else %}<span class="badge badge-gray">{{ p.planning_status }}</span>{% endif %}</td>
+          <td data-label="RD">
+            {% if p.download_status == 'requested' %}
+            <span class="badge badge-purple" title="{{ p.download_info }}">Downloading</span>
+            {% elif p.download_status == 'not_found' %}
+            <span class="badge badge-yellow">Not found</span>
+            {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
+            {% elif p.download_status == 'no_rd_key' %}
+            <span class="badge badge-gray">No RD key</span>
+            {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
+            {% elif p.download_status == 'rd_provider_block' %}
+            <span class="badge badge-yellow" title="{{ p.download_info }}">RD blocked</span>
+            {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
+            {% elif p.download_status == 'error' %}
+            <span class="badge badge-red">Error</span>
+            {% if p.download_info %}<div class="queue-detail">{{ p.download_info }}</div>{% endif %}
+            {% else %}
+            <span class="queue-muted">-</span>
+            {% endif %}
+            {% if p.download_attempts %}
+            <details class="download-attempts">
+              <summary>RD attempts</summary>
+              <div class="attempt-list">
+                {% for a in p.download_attempts %}
+                <div class="attempt-item">
+                  <div class="attempt-head">
+                    <span class="badge {{ a.badge_class }}">{{ a.status_label }}</span>
+                    <span class="attempt-meta">#{{ a.candidate_rank }}/{{ a.total_candidates }}{% if a.response_label %} &middot; {{ a.response_label }}{% endif %}</span>
+                  </div>
+                  <div class="attempt-title">{{ a.torrent_title }}</div>
+                  <div class="attempt-meta">
+                    {{ a.seeders }}s &middot; {{ a.size_display }}{% if a.is_batch %} &middot; batch{% endif %}{% if a.torrent_hash %} &middot; {{ a.torrent_hash }}{% endif %}
+                  </div>
+                  {% if a.detail %}<div class="queue-detail">{{ a.detail }}</div>{% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            </details>
+            {% endif %}
+          </td>
+          <td data-label="Added" class="queue-date">{{ p.added_at }}</td>
+          <td data-label="Actions">
+            <div class="queue-actions">
+              {% if p.download_status in ['', 'not_found', 'error', 'rd_provider_block', 'no_rd_key'] %}
+              <form class="inline-form" method="post" action="/plus/dashboard/download">
+                <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
+                <input type="hidden" name="title" value="{{ p.title }}">
+                <button type="submit" class="btn btn-secondary btn-small">{{ 'Download' if not p.download_status else 'Retry' }}</button>
+              </form>
+              {% endif %}
+              <form class="inline-form" method="post" action="/plus/dashboard/remove-plan">
+                <input type="hidden" name="anilist_id" value="{{ p.anilist_id }}">
+                <button type="submit" class="btn btn-ghost btn-small">Remove</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">No anime planned yet.</div>
+    {% endif %}
+  </section>
 
-  const lane = document.querySelector('input[name="lane"]:checked').value;
-  const body = JSON.stringify({
-    source: document.getElementById('run-source').value,
-    username: document.getElementById('run-username').value,
-    mode: document.getElementById('run-mode').value,
-    count: parseInt(document.getElementById('run-count').value),
-    temperature: parseFloat(document.getElementById('run-temp').value),
-    model: document.getElementById('run-model').value,
-    lane: lane,
-    use_planning: lane === 'plan_list' || document.getElementById('run-planning').checked,
-    skip_profile: document.getElementById('run-skip').checked,
-  });
+  <section class="panel profile-panel" aria-labelledby="profile-title">
+    <div class="section-title">
+      <div>
+        <span class="section-kicker">Long-term signal</span>
+        <h2 id="profile-title">Taste Profile</h2>
+      </div>
+      {% if taste_profile_updated %}
+      <span class="summary-pill">Updated {{ taste_profile_updated }}</span>
+      {% endif %}
+    </div>
+    <form class="dashboard-form" method="post" action="/plus/dashboard/profile">
+      <div class="field">
+        <label for="profile">Profile notes</label>
+        <textarea id="profile" name="profile" placeholder="## Things I love&#10;- Morally complex protagonists&#10;- Dense world-building&#10;&#10;## Things I bounce off&#10;- ...&#10;&#10;## Characters that resonate&#10;- [Character] - [why]&#10;&#10;## Recent loves&#10;- [Title you scored highly]">{{ taste_profile }}</textarea>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Profile</button>
+    </form>
+  </section>
 
-  const fail = (msg) => {
-    clearInterval(_loadingTimer);
-    loading.classList.remove('active');
-    btn.disabled = false;
-    err.textContent = msg;
-    err.style.display = 'block';
-  };
-
-  // Start the run. The server hands back a job_id immediately and does the
-  // multi-minute work in the background, so this request — and every poll
-  // below — is short. That's what keeps us under the reverse-proxy read
-  // timeout (a single long request used to come back as a 504 HTML page,
-  // which broke JSON parsing with "Unexpected token '<'").
-  let job;
-  try {
-    const resp = await fetch('/plus/api/run', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body,
-    });
-    job = await resp.json();
-  } catch (ex) {
-    fail('Network error starting run: ' + ex.message);
-    return;
-  }
-  if (!job || job.status !== 'running' || !job.job_id) {
-    fail('Could not start run: ' + ((job && job.detail) || 'unexpected response'));
-    return;
-  }
-
-  // Poll until the job leaves the 'running' state.
-  const deadline = Date.now() + 10 * 60 * 1000; // 10-minute ceiling
-  const poll = async () => {
-    if (Date.now() > deadline) {
-      fail('Run is taking unusually long. Refresh the page to check for results.');
-      return;
-    }
-    let data;
-    try {
-      const r = await fetch('/plus/api/run/status/' + encodeURIComponent(job.job_id));
-      data = await r.json();
-    } catch (ex) {
-      // Transient blip — the run continues server-side. Keep polling.
-      setTimeout(poll, 3000);
-      return;
-    }
-    if (data.status === 'running') {
-      setTimeout(poll, 3000);
-      return;
-    }
-    if (data.status === 'ok') {
-      _renderResults(data);
-      // Reload to get the persisted run + fresh planning queue + recent runs.
-      window.location.href = '/plus/dashboard?run=' + data.run_id;
-      return;
-    }
-    fail('Recommendation failed: ' + (data.detail || 'unknown error'));
-  };
-  poll();
-}
-
-function _tick() {
-  const s = Math.floor((Date.now() - _loadingStart) / 1000);
-  document.getElementById('loading-elapsed').textContent = s + 's';
-  const phases = [
-    {at:0, t:'Asking the LLM to pair your tasting menu...'},
-    {at:15, t:'Still thinking. Pro mode takes longer.'},
-    {at:45, t:'Reasoning models can take 1-2 minutes...'},
-    {at:90, t:'Still working. Try Fast mode next time if this is too slow.'},
-  ];
-  let phase = phases[0];
-  for (const p of phases) if (s >= p.at) phase = p;
-  document.getElementById('loading-text').textContent = phase.t;
-}
-
-function _renderResults(data) {
-  // Quick in-place render while redirect loads
-  const container = document.getElementById('results-list');
-  if (!container) return;
-  container.innerHTML = '';
-  data.recommendations.forEach(r => {
-    const score = r.predicted_score;
-    let sc = 'score-mid';
-    if (score >= 8) sc = 'score-high';
-    else if (score < 6) sc = 'score-low';
-    container.innerHTML += '<div class="rec-card">' +
-      '<div class="top"><div class="title">' + esc(r.title) + '</div>' +
-      '<span class="score ' + sc + '">' + score + '/10</span></div>' +
-      '<div class="reasoning">' + esc(r.reasoning) + '</div>' +
-      (r.best_match_from_history ? '<div class="match">Pairs with: <strong>' + esc(r.best_match_from_history) + '</strong></div>' : '') +
-      '</div>';
-  });
-}
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-function intOrNull(value) {
-  const parsed = parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-document.querySelectorAll('.btn-feedback').forEach((button) => {
-  button.addEventListener('click', async () => {
-    const group = button.closest('.feedback-actions');
-    if (!group) return;
-    const original = button.textContent;
-    button.disabled = true;
-    try {
-      const resp = await fetch('/plus/api/feedback', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          feedback_type: button.dataset.feedback,
-          title: group.dataset.title,
-          source: group.dataset.source || 'anilist',
-          media_id: intOrNull(group.dataset.mediaId),
-          run_id: intOrNull(group.dataset.runId),
-        }),
-      });
-      const data = await resp.json();
-      if (!resp.ok || !data || data.status !== 'ok') throw new Error();
-      button.textContent = 'Saved';
-    } catch (ex) {
-      button.disabled = false;
-      button.textContent = original;
-    }
-  });
-});
-</script>
+  <section class="panel runs-panel" aria-labelledby="runs-title">
+    <div class="section-title">
+      <div>
+        <span class="section-kicker">History</span>
+        <h2 id="runs-title">Recent Runs</h2>
+      </div>
+      <span class="summary-pill">{{ dashboard_summary.runs_total }} saved</span>
+    </div>
+    {% if runs %}
+    <div class="run-list">
+      {% for r in runs %}
+      <a class="run-item" href="?run={{ r.id }}">
+        <span class="run-date">{{ r.created_at }}</span>
+        <span class="run-meta">{{ r.source }} &middot; {{ r.model }}</span>
+        <span class="run-count">{{ r.picks | length }} picks</span>
+        <span class="btn btn-ghost btn-small">View</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state empty-state-compact">No saved runs yet.</div>
+    {% endif %}
+  </section>
+</main>
 </body>
 </html>

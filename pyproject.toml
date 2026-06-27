@@ -64,6 +64,7 @@ omakase = [
     "web/templates/*.html",
     "web/static/*",
     "plus/templates/*.html",
+    "plus/static/*",
     "plus/migrations/*.sql",
 ]
 

@@ -1,6 +1,6 @@
 # omakase — project instructions for AI agents
 
-LLM-powered anime sommelier: a Python CLI + FastAPI web app. Applies to Claude Code, Codex, and Cherry Claw (DeepSeek). Canonical narrative state: `C:\Users\qazws\Nextcloud2\Homelab Vault\Projects\omakase\README.md`. Active brief: `C:\Users\qazws\Nextcloud2\Homelab Vault\Agent-Sessions\omakase\03-plus-direct-auto-download.md`.
+LLM-powered anime sommelier: a Python CLI + FastAPI web app. Applies to Claude Code, Codex, and Cherry Claw (DeepSeek). Canonical narrative state: `C:\Users\qazws\Nextcloud2\Homelab Vault\Projects\omakase\README.md`. Active brief: `C:\Users\qazws\Nextcloud2\Homelab Vault\Agent-Sessions\omakase\04-plus-dashboard-ui-rework.md`.
 
 ## Stack & layout
 
@@ -13,7 +13,7 @@ LLM-powered anime sommelier: a Python CLI + FastAPI web app. Applies to Claude C
 
 ```powershell
 # from repo root
-.\.venv\Scripts\python.exe -m pytest            # test suite (baseline ~154 passing)
+.\.venv\Scripts\python.exe -m pytest            # test suite (baseline 313 passing)
 .\.venv\Scripts\python.exe -m omakase.cli --help
 .\.venv\Scripts\python.exe -m omakase.cli recommend -u <anilist_user>
 ```
@@ -23,7 +23,7 @@ LLM-powered anime sommelier: a Python CLI + FastAPI web app. Applies to Claude C
 
 ## Deploy (gated)
 
-- Plus deploy recipe: **`DEPLOY-PLUS.md`** in repo root + `compose-plus.yaml`. Target: **CT 101 docker-edge** (optiplex `192.168.50.141`), stack dir `/opt/stacks/omakase-plus/`, port 8766, **LAN-only (no NPM proxy)**.
+- Plus deploy recipe: **`DEPLOY-PLUS.md`** in repo root + `compose-plus.yaml`. Target: **CT 101 docker-edge** (optiplex `192.168.50.141`), stack dir `/opt/stacks/omakase-plus/`, port 8766, private live host **`anime.jhinx.dev/plus`** behind NPM access controls.
 - Public site (`omakase.jhinx.dev`) deploys with a **jhinx-specific overlay** that lives OFF-repo at `/opt/stacks/omakase-overlay/`; its `apply.sh` must run **after** rsync and **before** `docker compose up -d --build`.
 - 🛑 **HARD HALT:** the public-site refactor (drop waitlist → "try with your key" CTA) is the only thing that ships to a public surface and requires **explicit user approval** (Phase 7 of the brief). Private `plus-mvp` branch pushes + local Plus deploy are fine without asking; the public cutover is not. Do not rationalize your way past this gate.
 
