@@ -1,4 +1,4 @@
-# Deploy Omakase Plus (private — LAN only)
+# Deploy Omakase Plus (private)
 
 Deploy to CT 101 (docker-edge LXC, 192.168.50.141) on the optiplex node.
 
@@ -43,7 +43,10 @@ docker exec omakase-plus python -m omakase.plus.admin seed-user
 
 ## Access
 
-Open `http://192.168.50.141:8766/plus/login` from any device on your LAN.
+Open either:
+
+- `https://anime.jhinx.dev/plus/login` through the private NPM access-controlled host.
+- `http://192.168.50.141:8766/plus/login` from a trusted LAN client.
 
 ## Update
 
@@ -63,7 +66,7 @@ docker compose -f compose-plus.yaml up -d --build
 
 ## Notes
 
-- Port 8766 is LAN-only. On the homelab it is also available through the LAN-only NPM host `anime.jhinx.dev`.
+- Port 8766 remains bound on CT 101. On the homelab it is also available through the private NPM host `anime.jhinx.dev`.
 - `OMAKASE_PLUS_PRIVATE=true` gates all Plus routes
 - Data persists in `/opt/stacks/omakase-plus/data/`
 - The public demo at omakase.jhinx.dev (port 8765) is unaffected

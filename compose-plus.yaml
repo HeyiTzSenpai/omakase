@@ -1,8 +1,8 @@
-# Private Omakase Plus stack — workstation-only, not exposed to public internet.
+# Private Omakase Plus stack — access-controlled, not exposed as a public route.
 #
 # Deploy to /opt/stacks/omakase-plus/ on CT 101 or your workstation.
-# Access via Tailscale IP (e.g. http://100.x.x.x:8766) or local LAN.
-# Do NOT proxy this through NPM — it's private-only.
+# Access via the private NPM host https://anime.jhinx.dev/plus or local LAN.
+# Keep this behind homelab/NPM access controls; do not expose Plus publicly.
 #
 # The public demo at omakase.jhinx.dev stays on port 8765 (compose.yaml).
 # Plus routes 404 there because OMAKASE_PLUS_PRIVATE is unset.
