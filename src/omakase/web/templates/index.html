@@ -3,601 +3,267 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Omakase — an anime sommelier</title>
+  <meta name="theme-color" content="#0b0710">
+  <meta name="description" content="A private-by-request anime recommendation menu built from your own watch history and model key.">
+  <title>Omakase | Your anime tasting menu</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=Newsreader:opsz,wght@6..72,400;6..72,500&amp;display=swap">
   <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/app.js?v={{ asset_version }}" defer></script>
 </head>
 <body>
-  <main class="hero">
-    <div class="hero__inner">
-      <p class="hero__eyebrow">お任せ · Omakase</p>
-      <h1 class="hero__title">An anime sommelier,<br>tuned to your taste.</h1>
-      <p class="hero__lede">
-        Personal anime recommender. Bring your own LLM key.
-        Nothing stored server-side.
-      </p>
+  <a class="skip-link" href="#counter">Skip to the counter</a>
 
-      <div class="byok-banner">
-        <span class="byok-banner__icon" aria-hidden="true">🔑</span>
-        <div>
-          <strong>Bring your own LLM key.</strong>
-          Pick any backend — local (Ollama, LM Studio) or cloud (OpenAI, Anthropic, Gemini) —
-          paste your key below, and get a tasting menu from your scored anime history.
-          Your key is used for a single request and never stored or logged.
+  <nav class="back-nav" aria-label="Main site">
+    <a href="https://jhinx.dev" aria-label="Back to jhinx.dev">
+      <span aria-hidden="true">←</span>
+      <strong>jhinx.dev</strong>
+    </a>
+    <span aria-hidden="true">/</span>
+    <span>omakase</span>
+  </nav>
+
+  <main id="counter">
+    <section class="counter-shell" aria-labelledby="hero-title">
+      <div class="story-panel">
+        <img
+          class="story-panel__image"
+          src="/static/generated/omakase-counter-v2.png"
+          alt="Five dishes connected by constellation-like steam on a dark midnight chef's counter"
+          width="1536"
+          height="1024"
+        >
+        <div class="story-panel__veil"></div>
+        <div class="story-panel__copy">
+          <p class="kicker">お任せ / anime sommelier</p>
+          <h1 id="hero-title">A tasting menu for your actual taste.</h1>
+          <p class="hero-copy">
+            Pair your scored anime history with a model you choose. Omakase returns a small menu of picks and explains why each one belongs there.
+          </p>
+          <div class="story-facts" aria-label="Omakase public demo facts">
+            <span>One request</span>
+            <span>Your model key</span>
+            <span>No account</span>
+          </div>
         </div>
       </div>
 
-      <div class="error-banner" id="error-banner">
-        <span id="error-text"></span>
-      </div>
+      <div class="order-panel">
+        <header class="order-panel__header">
+          <div>
+            <p class="course-label">Tonight's counter</p>
+            <h2>Prepare your menu.</h2>
+          </div>
+          <p class="order-panel__intro">Three short courses. About two minutes to set up.</p>
+        </header>
 
-      <form id="setup-form" class="setup" onsubmit="return runRecommendations(event)">
+        <div class="privacy-receipt" aria-label="Privacy receipt">
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20">
+            <path d="M12 3 5 6v5c0 4.7 2.8 8.3 7 10 4.2-1.7 7-5.3 7-10V6l-7-3Z"></path>
+            <path d="m9 12 2 2 4-5"></path>
+          </svg>
+          <p><strong>Request-local by design.</strong> Your key and taste notes are used for this menu and never written to disk, logs, cookies, or a database.</p>
+        </div>
 
-        <!-- Step 1: LLM -->
-        <div class="step">
-          <div class="step__header">
-            <span class="step__number">1</span>
-            <div>
-              <div class="step__title">LLM backend</div>
-              <div class="step__desc">Where the AI runs. Local for free + private, or a cloud API.</div>
+        <div class="error-banner" id="error-banner" role="alert" tabindex="-1" hidden>
+          <p class="error-banner__label">The counter needs one change</p>
+          <p id="error-text"></p>
+        </div>
+
+        <nav class="course-nav" aria-label="Recommendation setup">
+          <button type="button" class="course-nav__item is-active" data-course-target="model" aria-current="step">
+            <span>01</span><strong>Model</strong><small>Who reasons</small>
+          </button>
+          <button type="button" class="course-nav__item" data-course-target="history">
+            <span>02</span><strong>History</strong><small>What you watched</small>
+          </button>
+          <button type="button" class="course-nav__item" data-course-target="taste">
+            <span>03</span><strong>Taste</strong><small>What matters</small>
+          </button>
+        </nav>
+
+        <form id="setup-form" class="setup" novalidate>
+          <input id="llm_type" name="llm_type" type="hidden" value="openai">
+          <input id="llm_url" name="llm_url" type="hidden" value="https://api.openai.com">
+          <input id="model" name="model" type="hidden" value="gpt-4o-mini">
+          <input id="mode" name="mode" type="hidden" value="fast">
+          <input id="source" name="source" type="hidden" value="anilist">
+
+          <section class="course is-active" data-course="model" aria-labelledby="model-course-title">
+            <div class="course__heading">
+              <p class="course-label">First course</p>
+              <h3 id="model-course-title">Choose who reasons.</h3>
+              <p>The provider charges your account directly. Omakase does not proxy or resell model access.</p>
             </div>
-          </div>
 
-          <div class="field">
-            <label class="field__label" for="llm_type">Backend</label>
-            <select id="llm_type" class="field__select" onchange="onBackendChange()">
-              <optgroup label="Local">
-                <option value="ollama" selected>Ollama</option>
-                <option value="lmstudio">LM Studio</option>
-              </optgroup>
-              <optgroup label="Frontier APIs">
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic (Claude)</option>
-                <option value="gemini">Google Gemini</option>
-                <option value="deepseek">DeepSeek</option>
-              </optgroup>
-              <optgroup label="Aggregators (OpenAI-compatible)">
-                <option value="openrouter">OpenRouter</option>
-                <option value="groq">Groq</option>
-                <option value="together">Together AI</option>
-              </optgroup>
-            </select>
-          </div>
+            <fieldset class="choice-grid choice-grid--providers">
+              <legend>Model provider</legend>
+              <label class="choice-card is-selected">
+                <input type="radio" name="provider" value="openai" checked>
+                <span class="choice-card__mark">O</span>
+                <span><strong>OpenAI</strong><small>Familiar and reliable</small></span>
+              </label>
+              <label class="choice-card">
+                <input type="radio" name="provider" value="anthropic">
+                <span class="choice-card__mark">A</span>
+                <span><strong>Anthropic</strong><small>Thoughtful explanations</small></span>
+              </label>
+              <label class="choice-card">
+                <input type="radio" name="provider" value="gemini">
+                <span class="choice-card__mark">G</span>
+                <span><strong>Gemini</strong><small>Fast, broad context</small></span>
+              </label>
+              <label class="choice-card">
+                <input type="radio" name="provider" value="openrouter">
+                <span class="choice-card__mark">R</span>
+                <span><strong>OpenRouter</strong><small>One key, many models</small></span>
+              </label>
+            </fieldset>
 
-          <div class="field">
-            <label class="field__label" for="llm_url">Base URL</label>
-            <input id="llm_url" class="field__input" type="url" value="http://localhost:11434">
-            <div class="field__hint" id="url-hint">Your Ollama instance URL.</div>
-          </div>
+            <div class="field-grid">
+              <div class="field field--wide">
+                <label for="api_key">Provider key</label>
+                <div class="secret-field">
+                  <input id="api_key" name="api_key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste for this request only" required>
+                  <button id="toggle-key" class="text-button" type="button" aria-pressed="false">Show</button>
+                </div>
+                <p class="field__hint" id="key-hint">Create or manage a key in your OpenAI account.</p>
+              </div>
+              <fieldset class="field field--wide mode-field">
+                <legend>Recommendation depth</legend>
+                <div class="segment-control">
+                  <label><input type="radio" name="model-mode" value="fast" checked><span><strong>Quick</strong><small>Lower cost</small></span></label>
+                  <label><input type="radio" name="model-mode" value="pro"><span><strong>Deep</strong><small>More reasoning</small></span></label>
+                </div>
+              </fieldset>
+            </div>
 
-          <div class="field" id="api-key-field" style="display:none">
-            <label class="field__label" for="api_key">API Key</label>
-            <input id="api_key" class="field__input" type="password" placeholder="sk-...">
-            <div class="field__hint">Stored only in memory for this session. Or set the OMAKASE_API_KEY env var.</div>
-          </div>
+            <details class="advanced">
+              <summary>Use a specific model</summary>
+              <div class="field">
+                <label for="model_override">Model name</label>
+                <input id="model_override" type="text" placeholder="Leave blank for the recommended model">
+                <p class="field__hint" id="model-hint">Quick currently selects gpt-4o-mini.</p>
+              </div>
+            </details>
 
-          <div class="field">
-            <label class="field__label" for="model">Model</label>
-            <input id="model" class="field__input" type="text" value="qwen2.5:7b">
-            <div id="model-select-wrapper" style="display:none">
-              <div style="display:flex; gap: var(--space-2);">
-                <select id="model-select" class="field__select" style="flex:1"></select>
-                <button type="button" class="btn btn--secondary" onclick="discoverModels()" title="Refresh model list" style="padding: var(--space-2) var(--space-3);">&#x21bb;</button>
+            <div class="course__actions course__actions--end">
+              <button class="button button--primary" type="button" data-next-course="history">Continue to history <span aria-hidden="true">→</span></button>
+            </div>
+          </section>
+
+          <section class="course" data-course="history" aria-labelledby="history-course-title" hidden>
+            <div class="course__heading">
+              <p class="course-label">Second course</p>
+              <h3 id="history-course-title">Bring what you watched.</h3>
+              <p>Your scores create the reference points. Omakase does not change your list.</p>
+            </div>
+
+            <fieldset class="source-switch">
+              <legend>Anime list source</legend>
+              <label><input type="radio" name="list-source" value="anilist" checked><span>AniList username</span></label>
+              <label><input type="radio" name="list-source" value="myanimelist"><span>MAL export</span></label>
+            </fieldset>
+
+            <div id="anilist-inputs" class="source-panel">
+              <div class="field">
+                <label for="username">Public AniList username</label>
+                <input id="username" name="username" type="text" autocomplete="username" placeholder="Your AniList handle">
+                <p class="field__hint">Only public list data is read. No AniList login is needed.</p>
               </div>
             </div>
-            <div class="field__hint" id="model-hint">Auto-filled by the Fast/Pro toggle. Override here if you want a specific model.</div>
-          </div>
 
-          <div class="field">
-            <label class="field__label">Mode</label>
-            <div style="display:flex; gap: var(--space-2); margin-top: var(--space-1);">
-              <button type="button" id="mode-fast" class="btn btn--primary mode-btn mode-btn--active" onclick="setMode('fast')" style="flex:1;justify-content:center;">
-                <span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;">⚡</span>
-                <span>Fast</span>
-              </button>
-              <button type="button" id="mode-pro" class="btn btn--secondary mode-btn" onclick="setMode('pro')" style="flex:1;justify-content:center;">
-                <span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;">🧠</span>
-                <span>Pro</span>
-              </button>
+            <div id="mal-inputs" class="source-panel" hidden>
+              <div class="upload-field">
+                <input id="mal_export_file" type="file" accept=".xml,.gz,application/xml,text/xml,application/gzip">
+                <label for="mal_export_file">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" width="24" height="24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5h14v-5"></path></svg>
+                  <span><strong id="upload-trigger-label">Choose your MAL export</strong><small>XML or XML.GZ, up to 10 MB</small></span>
+                </label>
+                <button type="button" id="upload-clear" class="text-button" hidden>Remove</button>
+              </div>
+              <p class="field__hint">Export the Anime list from MyAnimeList. The file is decoded in memory for this request.</p>
             </div>
-            <div class="field__hint" id="mode-hint">Fast: cheap and quick. Pro: better reasoning, slower or pricier.</div>
-          </div>
-        </div>
 
-        <!-- Step 2: Source -->
-        <div class="step">
-          <div class="step__header">
-            <span class="step__number">2</span>
-            <div>
-              <div class="step__title">Anime list</div>
-              <div class="step__desc">Where your scored history lives.</div>
-            </div>
-          </div>
-          <div class="field">
-            <label class="field__label" for="source">Source</label>
-            <select id="source" class="field__select" onchange="onSourceChange()">
-              <option value="anilist" selected>AniList</option>
-              <option value="myanimelist">MyAnimeList</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="field__label" for="username">Username</label>
-            <input id="username" class="field__input" type="text" placeholder="Your AniList username">
-            <div class="field__hint" id="username-hint">Your public AniList username.</div>
-          </div>
-          <div class="field" id="mal-key-field" style="display:none">
-            <label class="field__label" for="mal_client_id">MAL Client ID</label>
-            <input id="mal_client_id" class="field__input" type="password" placeholder="MAL Client ID">
-            <div class="field__hint">Get one at <a href="https://myanimelist.net/apiconfig" target="_blank" rel="noopener">myanimelist.net/apiconfig</a> (free). <strong>Your list must be Public.</strong></div>
-          </div>
-          <div class="field" id="mal-upload-field" style="display:none">
-            <label class="field__label" for="mal_export_file">Private list? Upload your MAL export instead</label>
-            <div class="upload">
-              <input id="mal_export_file" class="upload__input" type="file" accept=".xml,.gz,application/xml,text/xml,application/gzip" onchange="onMalFileSelected()">
-              <label for="mal_export_file" class="btn btn--secondary upload__trigger">
-                <span style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;">📂</span>
-                <span id="upload-trigger-label">Choose export file</span>
-              </label>
-              <button type="button" class="upload__clear" id="upload-clear" onclick="clearMalFile()" style="display:none" aria-label="Remove uploaded file">×</button>
-            </div>
-            <div class="field__hint">
-              Skips the Client ID + public-list requirement. Download yours at
-              <a href="https://myanimelist.net/panel.php?go=export" target="_blank" rel="noopener">myanimelist.net/panel.php?go=export</a>
-              — pick <em>Anime</em>, then drop the <code>.xml.gz</code> file here.
-            </div>
-          </div>
-          <div class="field">
-            <label class="field__label">
-              <input type="checkbox" id="use_planning" onchange="togglePlanning()" style="margin-right: var(--space-2);">
-              Recommend from my Plan to Watch
+            <label class="check-row">
+              <input type="checkbox" id="use_planning">
+              <span><strong>Choose only from my Plan to Watch list</strong><small>Useful when you already have a shortlist.</small></span>
             </label>
-            <div class="field__hint">Pick from anime you already plan to watch instead of the popular pool.</div>
-          </div>
-        </div>
 
-        <!-- Step 3: Taste profile -->
-        <div class="step">
-          <div class="step__header">
-            <span class="step__number">3</span>
-            <div>
-              <div class="step__title">Taste profile</div>
-              <div class="step__desc">Describe what you enjoy, what you avoid, and the patterns that usually make an anime click for you.</div>
+            <div class="course__actions">
+              <button class="button button--quiet" type="button" data-next-course="model"><span aria-hidden="true">←</span> Back</button>
+              <button class="button button--primary" type="button" data-next-course="taste">Continue to taste <span aria-hidden="true">→</span></button>
             </div>
-          </div>
-          <div class="field">
-            <label class="field__label">
-              <input type="checkbox" id="skip_profile" onchange="toggleSkipProfile()" style="margin-right: var(--space-2);">
-              Skip the profile — recommend from my scores alone (broader, less personalized)
+          </section>
+
+          <section class="course" data-course="taste" aria-labelledby="taste-course-title" hidden>
+            <div class="course__heading">
+              <p class="course-label">Final course</p>
+              <h3 id="taste-course-title">Tell the chef what matters.</h3>
+              <p>A few honest preferences sharpen the menu. Skip this to let your scores speak alone.</p>
+            </div>
+
+            <label class="check-row check-row--compact">
+              <input type="checkbox" id="skip_profile">
+              <span><strong>Use scores only</strong><small>Broader picks, less personal explanation.</small></span>
             </label>
-            <div class="field__hint">Use this if you'd rather get a wider net based on what you've rated highly — no writing required.</div>
-          </div>
-          <div class="field" id="profile-field">
-            <label class="field__label" for="profile">Profile</label>
-            <textarea id="profile" class="field__textarea" placeholder="## Things I love&#10;- Morally complex protagonists&#10;- Dense world-building&#10;&#10;## Things I bounce off&#10;- ...">{% if default_profile %}{{ default_profile }}{% endif %}</textarea>
-            <div class="field__hint" id="profile-hint">Markdown. Be specific — mention shows, characters, genres, studios. This is what makes the LLM understand you.</div>
-          </div>
-        </div>
 
-        <div style="display:flex; gap: var(--space-3); align-items: center;">
-          <button type="submit" class="btn btn--primary" id="run-btn">
-            <span>Try it with your API key</span>
-            <span style="font-family:'JetBrains Mono',monospace;font-size:1rem;">→</span>
-          </button>
-          <button type="button" class="btn btn--secondary" onclick="loadProfile()">Load from file</button>
-        </div>
-      </form>
+            <div class="field" id="profile-field">
+              <label for="profile">Taste notes</label>
+              <textarea id="profile" name="profile" rows="9" placeholder="Shows you love, patterns you avoid, characters or moods that stay with you...">{% if default_profile %}{{ default_profile }}{% endif %}</textarea>
+              <div class="field__meta"><span>Plain text or Markdown</span><span id="profile-count">0 words</span></div>
+            </div>
 
-      <div class="loading" id="loading" role="status" aria-live="polite">
-        <div class="spinner"></div>
-        <div class="loading__body">
-          <span class="loading__text" id="loading-text">Fetching your history…</span>
-          <span class="loading__meta">
-            <span id="loading-elapsed">0s</span>
-            <span class="loading__meta-sep">·</span>
-            <span class="loading__hint" id="loading-hint">Cloud LLMs usually take 10–30s · Pro mode can take a minute.</span>
-          </span>
+            <div class="final-receipt">
+              <p class="course-label">Before the request</p>
+              <ul>
+                <li>The model key goes only to the provider you selected.</li>
+                <li>Your history and notes go to that provider for this request. Omakase does not save them.</li>
+                <li>Private Plus automation is not connected to this demo.</li>
+              </ul>
+            </div>
+
+            <div class="course__actions">
+              <button class="button button--quiet" type="button" data-next-course="history"><span aria-hidden="true">←</span> Back</button>
+              <button class="button button--primary button--cook" type="submit" id="run-btn">Cook my recommendation menu <span aria-hidden="true">→</span></button>
+            </div>
+          </section>
+        </form>
+
+        <div class="loading" id="loading" role="status" aria-live="polite" hidden>
+          <div class="loading__route" aria-hidden="true"><i></i></div>
+          <div>
+            <p class="course-label">The menu is being prepared</p>
+            <strong id="loading-text">Reading your history...</strong>
+            <p><span id="loading-elapsed">0s</span> <span aria-hidden="true">/</span> <span id="loading-hint">Most menus arrive in under a minute.</span></p>
+          </div>
+          <button id="cancel-request" class="button button--quiet" type="button">Cancel</button>
         </div>
       </div>
+    </section>
 
-      <div class="results" id="results">
-        <div class="results__header">
-          <h2 class="results__title">Tonight's tasting menu</h2>
-          <span class="results__meta" id="results-meta"></span>
+    <section class="results" id="results" aria-labelledby="results-title" hidden>
+      <header class="results__header">
+        <div>
+          <p class="course-label">Your table is ready</p>
+          <h2 id="results-title">Tonight's tasting menu.</h2>
         </div>
-        <div id="results-list"></div>
-      </div>
-    </div>
+        <div>
+          <p id="results-meta"></p>
+          <button id="start-over" class="text-button" type="button">Prepare another menu</button>
+        </div>
+      </header>
+      <div class="results-list" id="results-list"></div>
+    </section>
   </main>
 
   <footer class="footer">
-    <a href="https://github.com/HeyiTzSenpai/omakase">Omakase</a> &middot; MIT &middot; from the homelab kitchen
-    <br><small>Plus accounts are private and not currently open.</small>
+    <p><a href="https://github.com/HeyiTzSenpai/omakase">Omakase on GitHub</a> <span aria-hidden="true">/</span> MIT licensed</p>
+    <p>Plus accounts are private and not currently open.</p>
   </footer>
 
-  <script>
-    let BACKENDS = { default_urls: {}, presets: {} };
-    let currentMode = 'fast';
-    let malExportB64 = '';  // populated when user uploads a MAL XML export
-    const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-
-    const REQUIRES_API_KEY = new Set([
-      'openai', 'anthropic', 'gemini', 'deepseek',
-      'openrouter', 'groq', 'together',
-    ]);
-
-    const BACKEND_HINTS = {
-      ollama:     'Your Ollama instance URL.',
-      lmstudio:   'Your LM Studio server URL. Models load from /v1/models.',
-      openai:     'OpenAI API base URL.',
-      anthropic:  'Anthropic /v1/messages endpoint.',
-      gemini:     'Google Generative Language API.',
-      deepseek:   'DeepSeek API base URL.',
-      openrouter: 'OpenRouter (routes to many models).',
-      groq:       'Groq Cloud (extremely fast inference).',
-      together:   'Together AI inference.',
-    };
-
-    async function loadBackendMetadata() {
-      try {
-        const resp = await fetch('/api/backends');
-        BACKENDS = await resp.json();
-      } catch (e) {
-        console.warn('Could not load backend metadata', e);
-      }
-      onBackendChange();
-    }
-
-    function onBackendChange() {
-      const type = document.getElementById('llm_type').value;
-      const urlField = document.getElementById('llm_url');
-      const hint = document.getElementById('url-hint');
-      const apiKeyField = document.getElementById('api-key-field');
-      const modelInput = document.getElementById('model');
-      const modelSelectWrap = document.getElementById('model-select-wrapper');
-
-      if (BACKENDS.default_urls && BACKENDS.default_urls[type]) {
-        urlField.value = BACKENDS.default_urls[type];
-      }
-      hint.textContent = BACKEND_HINTS[type] || '';
-      apiKeyField.style.display = REQUIRES_API_KEY.has(type) ? 'block' : 'none';
-
-      if (type === 'lmstudio') {
-        modelInput.style.display = 'none';
-        modelSelectWrap.style.display = 'block';
-        discoverModels();
-      } else {
-        modelInput.style.display = 'block';
-        modelSelectWrap.style.display = 'none';
-        applyPresetModel();
-      }
-      updateModeHint();
-    }
-
-    function applyPresetModel() {
-      const type = document.getElementById('llm_type').value;
-      const preset = BACKENDS.presets && BACKENDS.presets[type + '-' + currentMode];
-      if (preset) document.getElementById('model').value = preset.model;
-    }
-
-    function setMode(mode) {
-      currentMode = mode;
-      document.getElementById('mode-fast').className = mode === 'fast'
-        ? 'btn btn--primary mode-btn mode-btn--active'
-        : 'btn btn--secondary mode-btn';
-      document.getElementById('mode-pro').className = mode === 'pro'
-        ? 'btn btn--primary mode-btn mode-btn--active'
-        : 'btn btn--secondary mode-btn';
-      applyPresetModel();
-      updateModeHint();
-    }
-
-    function updateModeHint() {
-      const type = document.getElementById('llm_type').value;
-      const preset = BACKENDS.presets && BACKENDS.presets[type + '-' + currentMode];
-      const hint = document.getElementById('mode-hint');
-      if (!preset) {
-        hint.textContent = currentMode === 'fast'
-          ? 'Fast: cheap, quick.'
-          : 'Pro: better reasoning, slower or pricier.';
-        return;
-      }
-      hint.textContent = (currentMode === 'fast' ? 'Fast: ' : 'Pro: ') + preset.model;
-    }
-
-    async function discoverModels() {
-      const url = document.getElementById('llm_url').value.replace(/\/+$/, '');
-      const select = document.getElementById('model-select');
-      const btn = select.parentElement.querySelector('button');
-      btn.textContent = '...';
-      btn.disabled = true;
-      try {
-        const resp = await fetch('/api/models?url=' + encodeURIComponent(url));
-        const data = await resp.json();
-        select.innerHTML = '';
-        if (data.models && data.models.length > 0) {
-          data.models.forEach(function(m) {
-            const opt = document.createElement('option');
-            opt.value = m;
-            opt.textContent = m;
-            select.appendChild(opt);
-          });
-        } else {
-          select.innerHTML = '<option value="">No models found</option>';
-        }
-      } catch {
-        select.innerHTML = '<option value="">Failed to connect</option>';
-      } finally {
-        btn.textContent = '↻';
-        btn.disabled = false;
-      }
-    }
-
-    async function loadProfile() {
-      try {
-        const resp = await fetch('/api/profile');
-        if (!resp.ok) throw new Error('No profile file found');
-        const data = await resp.json();
-        document.getElementById('profile').value = data.profile;
-      } catch {
-        alert('No taste profile file found. Run `omakase init` or write inline.');
-      }
-    }
-
-    // Phased loading: the server is one blocking call, so we simulate the
-    // pipeline's known stages by elapsed time. The LLM step is by far the
-    // longest, so we sit there longest. Honest enough to feel real.
-    let _loadingTimer = null;
-    let _loadingStartedAt = 0;
-    const LOADING_PHASES = [
-      { at: 0,    text: 'Fetching your anime history…' },
-      { at: 3,    text: 'Building the prompt…' },
-      { at: 5,    text: 'Asking the LLM to pair your tasting menu…' },
-      { at: 25,   text: 'The LLM is still thinking. Reasoning models take a while.' },
-      { at: 60,   text: 'Still working… consider switching to Fast mode next time.' },
-      { at: 120,  text: 'This is taking unusually long. Feel free to cancel and try again.' },
-    ];
-
-    function _renderLoading() {
-      const elapsed = Math.floor((Date.now() - _loadingStartedAt) / 1000);
-      let phase = LOADING_PHASES[0];
-      for (const p of LOADING_PHASES) if (elapsed >= p.at) phase = p;
-      document.getElementById('loading-text').textContent = phase.text;
-      document.getElementById('loading-elapsed').textContent = elapsed + 's';
-    }
-
-    function setLoading(active) {
-      const el = document.getElementById('loading');
-      if (active) {
-        _loadingStartedAt = Date.now();
-        el.classList.add('loading--active');
-        _renderLoading();
-        clearInterval(_loadingTimer);
-        _loadingTimer = setInterval(_renderLoading, 1000);
-      } else {
-        clearInterval(_loadingTimer);
-        _loadingTimer = null;
-        el.classList.remove('loading--active');
-      }
-    }
-
-    function showError(msg) {
-      document.getElementById('error-text').textContent = msg;
-      document.getElementById('error-banner').classList.add('error-banner--active');
-    }
-
-    function clearError() {
-      document.getElementById('error-banner').classList.remove('error-banner--active');
-    }
-
-    async function runRecommendations(e) {
-      e.preventDefault();
-      clearError();
-
-      const llmType = document.getElementById('llm_type').value;
-      const model = llmType === 'lmstudio'
-        ? document.getElementById('model-select').value
-        : document.getElementById('model').value;
-
-      const skipProfile = document.getElementById('skip_profile').checked;
-      const config = {
-        llm_type: llmType,
-        llm_url: document.getElementById('llm_url').value.replace(/\/+$/, ''),
-        api_key: document.getElementById('api_key').value,
-        mal_client_id: document.getElementById('mal_client_id').value,
-        mal_export_b64: malExportB64,
-        model: model,
-        source: document.getElementById('source').value,
-        username: document.getElementById('username').value,
-        profile: skipProfile ? '' : document.getElementById('profile').value,
-        mode: currentMode,
-        use_planning: document.getElementById('use_planning').checked,
-        skip_profile: skipProfile,
-      };
-
-      if (!malExportB64 && !config.username.trim()) {
-        showError('Enter a username for the data source, or upload your MAL export.');
-        return;
-      }
-      if (!config.use_planning && !skipProfile && !config.profile.trim()) {
-        showError('Write a taste profile, check "Skip the profile" for broader recs, or check "Recommend from my Plan to Watch".');
-        return;
-      }
-
-      setLoading(true);
-      document.getElementById('results').classList.remove('results--active');
-      document.getElementById('run-btn').disabled = true;
-
-      try {
-        const resp = await fetch('/api/recommend', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(config),
-        });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail || data.error || 'Request failed');
-        displayResults(data);
-      } catch (err) {
-        showError(err.message);
-      } finally {
-        setLoading(false);
-        document.getElementById('run-btn').disabled = false;
-      }
-    }
-
-    function displayResults(data) {
-      const results = document.getElementById('results');
-      const list = document.getElementById('results-list');
-      const meta = document.getElementById('results-meta');
-
-      meta.textContent = `${data.username} · ${data.source} · ${data.recommendations.length} recs`;
-      list.innerHTML = '';
-
-      if (data.recommendations.length === 0) {
-        list.innerHTML = '<div class="empty-state"><span class="empty-state__icon">🤔</span><div class="empty-state__text">No recommendations returned. Check the LLM output.</div></div>';
-        results.classList.add('results--active');
-        return;
-      }
-
-      data.recommendations.forEach(function(rec) {
-        const score = rec.predicted_score;
-        let scoreClass = 'rec-card__score--low';
-        if (score >= 8) scoreClass = 'rec-card__score--high';
-        else if (score >= 6) scoreClass = 'rec-card__score--mid';
-
-        // Render as an <a> if we know where this anime lives on the
-        // selected source. Falls back to a plain <div> so layout stays
-        // intact when no URL is available.
-        const sourceLabel = rec.source === 'myanimelist'
-          ? 'MyAnimeList'
-          : rec.source === 'anilist' ? 'AniList' : '';
-        const cardTag = rec.url ? 'a' : 'div';
-        const card = document.createElement(cardTag);
-        card.className = rec.url ? 'rec-card rec-card--link' : 'rec-card';
-        if (rec.url) {
-          card.href = rec.url;
-          card.target = '_blank';
-          card.rel = 'noopener noreferrer';
-          card.setAttribute(
-            'aria-label',
-            'Open ' + rec.title + (sourceLabel ? ' on ' + sourceLabel : '') + ' in a new tab',
-          );
-        }
-
-        const externalHint = rec.url && sourceLabel
-          ? '<span class="rec-card__external" aria-hidden="true">Open on ' + sourceLabel + ' ↗</span>'
-          : '';
-
-        card.innerHTML =
-          '<div class="rec-card__top">' +
-            '<div class="rec-card__title">' + escapeHtml(rec.title) + '</div>' +
-            '<span class="rec-card__score ' + scoreClass + '">' + score + '/10</span>' +
-          '</div>' +
-          '<div class="rec-card__reasoning">' + escapeHtml(rec.reasoning) + '</div>' +
-          '<div class="rec-card__match">' +
-            '<span>Pairs with: <strong>' + escapeHtml(rec.best_match_from_history) + '</strong></span>' +
-            externalHint +
-          '</div>';
-        list.appendChild(card);
-      });
-
-      results.classList.add('results--active');
-      results.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    function onSourceChange() {
-      const source = document.getElementById('source').value;
-      const username = document.getElementById('username');
-      const hint = document.getElementById('username-hint');
-      const malField = document.getElementById('mal-key-field');
-      const malUpload = document.getElementById('mal-upload-field');
-
-      if (source === 'myanimelist') {
-        username.placeholder = 'Your MAL username';
-        hint.textContent = 'Your public MyAnimeList username — or skip this and upload your export below.';
-        malField.style.display = 'block';
-        malUpload.style.display = 'block';
-      } else {
-        username.placeholder = 'Your AniList username';
-        hint.textContent = 'Your public AniList username.';
-        malField.style.display = 'none';
-        malUpload.style.display = 'none';
-        clearMalFile();
-      }
-    }
-
-    function onMalFileSelected() {
-      const input = document.getElementById('mal_export_file');
-      const label = document.getElementById('upload-trigger-label');
-      const clearBtn = document.getElementById('upload-clear');
-      const file = input.files && input.files[0];
-      if (!file) {
-        clearMalFile();
-        return;
-      }
-      if (file.size > MAX_UPLOAD_BYTES) {
-        showError('That file is over 10 MB — much bigger than any real MAL export. Double-check you picked the right file.');
-        clearMalFile();
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = function () {
-        // FileReader's result is a data URL like "data:...;base64,XXXX".
-        const result = reader.result || '';
-        const comma = result.indexOf(',');
-        malExportB64 = comma >= 0 ? result.slice(comma + 1) : '';
-        label.textContent = file.name + ' · ready';
-        clearBtn.style.display = 'inline-flex';
-        clearError();
-      };
-      reader.onerror = function () {
-        showError('Could not read that file. Try a different one.');
-        clearMalFile();
-      };
-      reader.readAsDataURL(file);
-    }
-
-    function clearMalFile() {
-      malExportB64 = '';
-      const input = document.getElementById('mal_export_file');
-      if (input) input.value = '';
-      const label = document.getElementById('upload-trigger-label');
-      if (label) label.textContent = 'Choose export file';
-      const clearBtn = document.getElementById('upload-clear');
-      if (clearBtn) clearBtn.style.display = 'none';
-    }
-
-    function togglePlanning() {
-      const checked = document.getElementById('use_planning').checked;
-      const profileField = document.getElementById('profile');
-      const hint = document.getElementById('profile-hint');
-      if (checked) {
-        profileField.placeholder = '(Optional when using Plan to Watch)';
-        hint.textContent = 'Optional — your planning list already reflects your interests.';
-      } else {
-        profileField.placeholder = '## Things I love\n- Morally complex protagonists\n- Dense world-building\n\n## Things I bounce off\n- ...';
-        hint.textContent = 'Markdown. Be specific — mention shows, characters, genres, studios. This is what makes the LLM understand you.';
-      }
-    }
-
-    function toggleSkipProfile() {
-      const skip = document.getElementById('skip_profile').checked;
-      const field = document.getElementById('profile-field');
-      // Hide the textarea entirely when the user opts out of writing a profile.
-      // The submit handler also strips the textarea value in that case so any
-      // stale draft can't leak into the request.
-      field.style.display = skip ? 'none' : 'block';
-    }
-
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    document.addEventListener('DOMContentLoaded', loadBackendMetadata);
-  </script>
+  <noscript><p class="noscript">Omakase needs JavaScript to prepare an interactive recommendation menu.</p></noscript>
 </body>
 </html>

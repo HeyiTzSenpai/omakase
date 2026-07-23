@@ -138,6 +138,7 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
         cfg.candidate_pool_size,
         use_planning=cfg.use_planning,
         export_data=cfg.export_data,
+        mal_client_id=cfg.mal_client_id,
     )
 
     if not data.history:
@@ -170,11 +171,15 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
     print(f"        Candidates: {len(data.candidates)} ({source_label})")
 
     # 2. Load taste profile (may be intentionally empty for broader recs)
-    if cfg.profile_path:
+    if cfg.taste_profile is not None:
+        print("  [2/5] Using request-local taste profile...")
+        taste_profile = cfg.taste_profile.strip()
+    elif cfg.profile_path:
         print(f"  [2/5] Loading taste profile from {cfg.profile_path}...")
+        taste_profile = _load_taste_profile(cfg.profile_path)
     else:
         print("  [2/5] Skipping taste profile (broader recs from scores alone)...")
-    taste_profile = _load_taste_profile(cfg.profile_path)
+        taste_profile = ""
     if taste_profile:
         print(f"        Profile: {len(taste_profile.split())} words")
     else:
@@ -188,7 +193,7 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
     # 4. Send to LLM
     mode_label = "PRO" if cfg.mode == "pro" else "fast"
     print(f"  [4/5] Querying LLM ({cfg.llm_type}: {cfg.model}) [{mode_label}]...")
-    llm = get_llm(cfg.llm_type, cfg.llm_url, cfg.model)
+    llm = get_llm(cfg.llm_type, cfg.llm_url, cfg.model, api_key=cfg.api_key)
     raw = llm.generate(
         prompt,
         temperature=cfg.temperature,

@@ -35,8 +35,8 @@ MAL_API = "https://api.myanimelist.net/v2"
 JIKAN_API = "https://api.jikan.moe/v4"
 
 
-def _get_mal_client_id() -> str:
-    cid = os.environ.get("MAL_CLIENT_ID", "")
+def _get_mal_client_id(client_id: str | None = None) -> str:
+    cid = client_id or os.environ.get("MAL_CLIENT_ID", "")
     if not cid:
         raise ValueError(
             "MAL_CLIENT_ID env var is not set. "
@@ -46,9 +46,9 @@ def _get_mal_client_id() -> str:
     return cid
 
 
-def _mal_headers() -> dict[str, str]:
+def _mal_headers(client_id: str | None = None) -> dict[str, str]:
     return {
-        "X-MAL-Client-ID": _get_mal_client_id(),
+        "X-MAL-Client-ID": _get_mal_client_id(client_id),
         "Content-Type": "application/json",
         "User-Agent": USER_AGENT,
     }
@@ -60,8 +60,8 @@ def _jikan_fetch(endpoint: str) -> dict:
         return json.loads(resp.read().decode())
 
 
-def _mal_fetch(endpoint: str) -> dict:
-    req = Request(f"{MAL_API}{endpoint}", headers=_mal_headers())
+def _mal_fetch(endpoint: str, client_id: str | None = None) -> dict:
+    req = Request(f"{MAL_API}{endpoint}", headers=_mal_headers(client_id))
     with urlopen(req) as resp:
         return json.loads(resp.read().decode())
 
@@ -208,7 +208,7 @@ def parse_mal_export(data: bytes) -> tuple[str, list[MediaItem]]:
 class MALAdapter(SourceAdapter):
     name = "myanimelist"
 
-    def _fetch_history(self, username: str) -> list[MediaItem]:
+    def _fetch_history(self, username: str, client_id: str | None = None) -> list[MediaItem]:
         """Fetch all user anime list entries from MAL API v2."""
         statuses = ["watching", "completed", "on_hold", "dropped", "plan_to_watch"]
         items: list[MediaItem] = []
@@ -224,7 +224,8 @@ class MALAdapter(SourceAdapter):
                     data = _mal_fetch(
                         f"/users/{username}/animelist?"
                         f"fields={fields}&limit={limit}&offset={offset}"
-                        f"&status={status}"
+                        f"&status={status}",
+                        client_id,
                     )
                 except HTTPError as e:
                     if e.code == 404:
@@ -287,7 +288,7 @@ class MALAdapter(SourceAdapter):
             time.sleep(0.5)
         return items[:pool_size]
 
-    def _fetch_planning(self, username: str) -> list[MediaItem]:
+    def _fetch_planning(self, username: str, client_id: str | None = None) -> list[MediaItem]:
         """Fetch user's plan_to_watch list from MAL API."""
         items: list[MediaItem] = []
         offset = 0
@@ -298,7 +299,8 @@ class MALAdapter(SourceAdapter):
                 data = _mal_fetch(
                     f"/users/{username}/animelist?"
                     f"fields={fields}&limit={limit}&offset={offset}"
-                    f"&status=plan_to_watch"
+                    f"&status=plan_to_watch",
+                    client_id,
                 )
             except HTTPError as e:
                 if e.code == 404:
@@ -321,6 +323,7 @@ class MALAdapter(SourceAdapter):
     def fetch(self, username: str, pool_size: int = 100, **kwargs) -> SourceData:
         export_data: bytes | None = kwargs.get("export_data")
         use_planning = kwargs.get("use_planning", False)
+        client_id: str | None = kwargs.get("mal_client_id")
 
         if export_data is not None:
             export_username, history = parse_mal_export(export_data)
@@ -329,7 +332,7 @@ class MALAdapter(SourceAdapter):
             # something to display.
             username = (username or export_username or "").strip()
         else:
-            history = self._fetch_history(username)
+            history = self._fetch_history(username, client_id)
 
         exclude_ids = [m.id for m in history if m.id]
 
@@ -338,7 +341,7 @@ class MALAdapter(SourceAdapter):
                 # The plan-to-watch list lives in the same XML; reuse it.
                 candidates = [m for m in history if m.status == "PLANNING"]
             else:
-                candidates = self._fetch_planning(username)
+                candidates = self._fetch_planning(username, client_id)
             # In planning mode the candidates ARE the planning list, so they
             # legitimately overlap with history. Only drop actively watched ones.
             watched_ids = {

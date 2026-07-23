@@ -63,6 +63,9 @@ class OmakaseConfig:
     supports_json_mode: bool = True  # some models don't support response_format
     use_planning: bool = False  # use user's Planning list as candidates
     export_data: bytes | None = None  # raw uploaded list export (MAL XML or .xml.gz)
+    taste_profile: str | None = None  # request-local profile; None loads profile_path
+    api_key: str | None = None  # request-local model credential
+    mal_client_id: str | None = None  # request-local MAL credential
 
 
 # Default API base URLs for each backend.

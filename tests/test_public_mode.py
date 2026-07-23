@@ -14,16 +14,20 @@ def _load_public_app(monkeypatch):
 
 
 def test_public_mode_promotes_byok_and_keeps_plus_private(monkeypatch):
+    monkeypatch.setenv("OMAKASE_PUBLIC_HOSTED", "true")
     app = _load_public_app(monkeypatch)
     client = TestClient(app)
 
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Try it with your API key" in response.text
-    assert "Nothing stored server-side" in response.text
+    assert "Cook my recommendation menu" in response.text
+    assert "never written to disk, logs, cookies, or a database" in response.text
     assert "Plus accounts are private and not currently open." in response.text
     assert "waitlist" not in response.text.lower()
+    assert "Ollama" not in response.text
+    assert "LM Studio" not in response.text
+    assert "—" not in response.text
 
 
 def test_public_mode_does_not_mount_plus_routes(monkeypatch):

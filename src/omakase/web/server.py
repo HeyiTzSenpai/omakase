@@ -7,6 +7,7 @@ Or:        python -m omakase web
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from pathlib import Path
 
@@ -29,11 +30,20 @@ from omakase.types import DEFAULT_URLS, MODEL_PRESETS, OmakaseConfig, resolve_mo
 # well under 1 MB; this is the "user uploaded the wrong file" guardrail.
 _MAX_EXPORT_BYTES = 10 * 1024 * 1024
 
+_HOSTED_PROVIDERS = {
+    "openai": DEFAULT_URLS["openai"],
+    "anthropic": DEFAULT_URLS["anthropic"],
+    "gemini": DEFAULT_URLS["gemini"],
+    "openrouter": DEFAULT_URLS["openrouter"],
+}
+
+logger = logging.getLogger(__name__)
+
 _HERE = Path(__file__).resolve().parent
 
 
 def _asset_version() -> str:
-    """Cache-bust query string for the static stylesheet.
+    """Cache-bust query string for the public interface assets.
 
     Built once at import time from the stylesheet's mtime — changes
     every time someone edits style.css and rebuilds the container,
@@ -41,9 +51,13 @@ def _asset_version() -> str:
     Falls back to the package version if stat() fails (e.g. inside an
     odd packaging scenario).
     """
-    css = _HERE / "static" / "style.css"
+    assets = (
+        _HERE / "static" / "style.css",
+        _HERE / "static" / "app.js",
+        _HERE / "static" / "generated" / "omakase-counter-v2.png",
+    )
     try:
-        return str(int(css.stat().st_mtime))
+        return str(max(int(asset.stat().st_mtime) for asset in assets))
     except OSError:
         return __version__
 
@@ -117,8 +131,49 @@ async def favicon_ico():
     return FileResponse(_HERE / "static" / "favicon.svg", media_type="image/svg+xml")
 
 
+@app.get("/api/health")
+async def health():
+    return {
+        "ok": True,
+        "service": "omakase-public",
+        "version": __version__,
+        "sourceCommit": os.environ.get("OMAKASE_SOURCE_COMMIT", "development"),
+    }
+
+
+def _is_hosted_public() -> bool:
+    return os.environ.get("OMAKASE_PUBLIC_HOSTED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _validate_hosted_provider(req: RecommendRequest) -> None:
+    if not _is_hosted_public():
+        return
+    expected = _HOSTED_PROVIDERS.get(req.llm_type)
+    if expected is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The hosted demo supports OpenAI, Anthropic, Gemini, and OpenRouter. "
+                "Run Omakase on your own machine to use a local model."
+            ),
+        )
+    if req.llm_url.rstrip("/") != expected.rstrip("/"):
+        raise HTTPException(
+            status_code=400,
+            detail="The hosted demo can contact only the official provider endpoint.",
+        )
+    if not (req.api_key or "").strip():
+        raise HTTPException(status_code=400, detail="Paste your provider key to continue.")
+
+
 @app.post("/api/recommend", response_model=RecommendResponse)
 async def recommend(req: RecommendRequest):
+    _validate_hosted_provider(req)
     export_data: bytes | None = None
     if req.mal_export_b64:
         try:
@@ -133,7 +188,7 @@ async def recommend(req: RecommendRequest):
                 status_code=413,
                 detail=(
                     f"Export file is too large ({len(export_data) // 1024} KB). "
-                    f"Max is {_MAX_EXPORT_BYTES // (1024 * 1024)} MB — "
+                    f"Max is {_MAX_EXPORT_BYTES // (1024 * 1024)} MB. "
                     "are you sure you uploaded the right file?"
                 ),
             )
@@ -145,33 +200,19 @@ async def recommend(req: RecommendRequest):
 
     if not export_data and not req.username.strip():
         raise HTTPException(status_code=400, detail="Username is required")
+    if _is_hosted_public() and req.source == "myanimelist" and not export_data:
+        raise HTTPException(
+            status_code=400,
+            detail="The hosted demo uses a MyAnimeList export so your list can stay private.",
+        )
     if not req.profile.strip() and not req.use_planning and not req.skip_profile:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Taste profile is required — or enable Plan to Watch, or check "
+                "Taste profile is required. Enable Plan to Watch, or check "
                 "'Skip profile' for broader recs from your scores alone."
             ),
         )
-
-    # Persist the inline profile to a file so the engine can re-read it.
-    # Skip-profile path: leave the path empty so the engine takes the
-    # no-profile branch instead of re-reading a leftover file.
-    if req.skip_profile and not req.profile.strip():
-        profile_path_str = ""
-    else:
-        profile_path = Path.home() / ".omakase" / "profile.md"
-        profile_path.parent.mkdir(parents=True, exist_ok=True)
-        profile_path.write_text(req.profile, encoding="utf-8")
-        profile_path_str = str(profile_path)
-
-    # Stage credentials in env for downstream clients to pick up. The
-    # export path bypasses MAL_CLIENT_ID entirely — don't stage one just
-    # because the user happened to leave a stale value in the field.
-    if req.api_key:
-        os.environ["OMAKASE_API_KEY"] = req.api_key
-    if req.mal_client_id and not export_data:
-        os.environ["MAL_CLIENT_ID"] = req.mal_client_id
 
     llm_url, llm_type, model, supports_json = resolve_model_preset(
         req.llm_url,
@@ -185,7 +226,7 @@ async def recommend(req: RecommendRequest):
         username=req.username.strip() or "uploaded-list",
         llm_url=llm_url,
         model=model,
-        profile_path=profile_path_str,
+        profile_path="",
         candidate_pool_size=req.pool_size,
         temperature=req.temperature,
         llm_type=llm_type,
@@ -193,6 +234,9 @@ async def recommend(req: RecommendRequest):
         supports_json_mode=supports_json,
         use_planning=req.use_planning,
         export_data=export_data,
+        taste_profile="" if req.skip_profile else req.profile,
+        api_key=req.api_key,
+        mal_client_id=req.mal_client_id if not export_data else None,
     )
 
     try:
@@ -205,9 +249,8 @@ async def recommend(req: RecommendRequest):
         raise HTTPException(
             status_code=502,
             detail=(
-                f"Couldn't reach the LLM at {req.llm_url}. "
-                "If this is a local backend (Ollama / LM Studio), is it running? "
-                "Otherwise check the base URL."
+                "Omakase could not reach the selected model provider. "
+                "Check the provider status and try again."
             ),
         )
     except httpx.TimeoutException:
@@ -221,7 +264,11 @@ async def recommend(req: RecommendRequest):
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=_friendly_llm_error(e, req.llm_type, req.model))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Recommendation request failed: %s", type(e).__name__)
+        raise HTTPException(
+            status_code=500,
+            detail="Omakase could not finish this menu. Try again shortly.",
+        )
 
     return RecommendResponse(
         source=req.source,
@@ -243,6 +290,8 @@ async def recommend(req: RecommendRequest):
 @app.get("/api/profile")
 async def get_profile():
     """Load taste profile from the default locations."""
+    if _is_hosted_public():
+        raise HTTPException(status_code=404, detail="Not found")
     candidates = [
         Path.cwd() / "taste-profile.md",
         Path.home() / ".omakase" / "profile.md",
@@ -274,6 +323,8 @@ async def get_backends():
 @app.get("/api/models")
 async def discover_models(url: str = "http://localhost:1234"):
     """Discover models from any OpenAI-compatible /v1/models endpoint."""
+    if _is_hosted_public():
+        raise HTTPException(status_code=404, detail="Not found")
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(f"{url.rstrip('/')}/v1/models")
@@ -290,19 +341,33 @@ async def discover_models(url: str = "http://localhost:1234"):
 _DEFAULT_PROFILE_FALLBACK = """## Things I love
 - Morally complex protagonists, not pure-hearted heroes
 - Dense world-building over slice-of-life
-- Stories that earn their ending — strong third act
+- Stories that earn their ending, especially a strong third act
 
 ## Things I bounce off
 - [What do you dislike?]
 
 ## Characters that resonate
-- [Character] — [why they resonate]
+- [Character]: [why they resonate]
 
-## Recent loves (don't recommend these — just calibration)
+## Recent loves (do not recommend these, they are calibration)
 - [Title you scored highly]"""
+
+_PUBLIC_PROFILE_STARTER = """## What usually works for me
+- Thoughtful science fiction and fantasy
+- Character growth that takes its time
+
+## What I usually avoid
+- Stories that rely on shock without earning it
+
+## A few favorites
+- Add two or three titles and what stayed with you"""
 
 
 def _get_default_profile() -> str:
+    if _is_hosted_public():
+        # The public demo must never render a profile that happens to exist on
+        # the host machine or inside a reused deployment directory.
+        return _PUBLIC_PROFILE_STARTER
     candidates = [
         Path.cwd() / "taste-profile.md",
         Path.home() / ".omakase" / "profile.md",
@@ -321,7 +386,6 @@ def _escape_html(text: str) -> str:
 def _friendly_llm_error(e: httpx.HTTPStatusError, llm_type: str, model: str) -> str:
     """Translate a raw LLM HTTP error into a message the visitor can act on."""
     code = e.response.status_code
-    body = e.response.text[:300]
     if code in (401, 403):
         return (
             f"{llm_type.title()} rejected your API key. "
@@ -341,7 +405,7 @@ def _friendly_llm_error(e: httpx.HTTPStatusError, llm_type: str, model: str) -> 
         return (
             f"{llm_type.title()} is having issues right now (HTTP {code}). Try again in a moment."
         )
-    return f"{llm_type.title()} returned HTTP {code}: {body}"
+    return f"{llm_type.title()} could not complete the request (HTTP {code})."
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8765):

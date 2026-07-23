@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir --upgrade pip build && \
     python -m build --wheel --outdir /wheels
 
 FROM python:3.12-slim AS runtime
+ARG OMAKASE_SOURCE_COMMIT=development
 LABEL org.opencontainers.image.source="https://github.com/HeyiTzSenpai/omakase"
 LABEL org.opencontainers.image.description="An LLM-powered sommelier for anime"
 LABEL org.opencontainers.image.licenses="MIT"
@@ -25,6 +26,7 @@ RUN pip install --no-cache-dir /tmp/*.whl && rm -rf /tmp/*.whl
 
 USER omakase
 ENV OMAKASE_PORT=8765
+ENV OMAKASE_SOURCE_COMMIT=${OMAKASE_SOURCE_COMMIT}
 EXPOSE 8765
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

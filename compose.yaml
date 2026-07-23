@@ -1,23 +1,25 @@
 # docker compose stack for self-hosting Omakase as a BYOK web demo.
 #
 # Drop this in /opt/stacks/omakase/ on CT 101, then `docker compose up -d`.
-# Visitors supply their own LLM API key in the form — no server-side key required.
+# Visitors supply their own LLM API key in the form. No server-side key is required.
 #
 # Proxy https://omakase.jhinx.dev -> http://<CT-IP>:8765 in NPM.
 
 services:
   omakase:
     container_name: omakase
-    build: .
+    build:
+      context: .
+      args:
+        OMAKASE_SOURCE_COMMIT: ${OMAKASE_SOURCE_COMMIT:-development}
     image: omakase:latest
     restart: unless-stopped
     ports:
       - "8765:8765"
-    # No environment vars required for BYOK mode. Visitors supply LLM keys via
-    # the web form per-request; nothing is stored. Uncomment below only if you
-    # want a server-side fallback key for some specific backend.
-    # environment:
-    #   OMAKASE_API_KEY: ${OMAKASE_API_KEY:-}
-    #   MAL_CLIENT_ID:   ${MAL_CLIENT_ID:-}
+    environment:
+      OMAKASE_PUBLIC_HOSTED: "true"
+      OMAKASE_SOURCE_COMMIT: ${OMAKASE_SOURCE_COMMIT:-development}
+    # Visitors supply LLM keys in the web form for one request. The public
+    # service does not use a server-side provider key or MAL client ID.
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
