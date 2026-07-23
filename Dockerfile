@@ -17,6 +17,7 @@ ARG OMAKASE_SOURCE_COMMIT=development
 LABEL org.opencontainers.image.source="https://github.com/HeyiTzSenpai/omakase"
 LABEL org.opencontainers.image.description="An LLM-powered sommelier for anime"
 LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.revision="${OMAKASE_SOURCE_COMMIT}"
 
 RUN useradd --create-home --uid 1000 omakase
 WORKDIR /home/omakase
