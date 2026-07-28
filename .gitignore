@@ -45,5 +45,9 @@ config.yml
 !.env.example
 secrets/
 
+# Deployment receipts and rollback material
+.backups/
+.deployed-source-commit
+
 # Tool-specific
 .claude/

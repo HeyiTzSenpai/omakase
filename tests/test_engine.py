@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
-from omakase.engine import _parse_recommendations, _resolve_rec_urls
-from omakase.types import MediaItem, Recommendation
+from types import SimpleNamespace
+
+import pytest
+
+import omakase.engine as engine
+from omakase.engine import (
+    EmptyHistoryError,
+    _exclude_feedback_candidates,
+    _parse_recommendations,
+    _resolve_rec_urls,
+)
+from omakase.types import MediaItem, OmakaseConfig, Recommendation, SourceData
 
 SAMPLE_JSON = """
 {"recommendations": [
@@ -103,3 +113,50 @@ def test_resolve_urls_match_is_case_insensitive_and_uses_romaji_too():
     _resolve_rec_urls(recs_ro, candidates, "anilist")
     assert recs_en[0].url == "https://anilist.co/anime/42/"
     assert recs_ro[0].url == "https://anilist.co/anime/42/"
+
+
+def test_exclude_feedback_candidates_matches_english_and_romaji_titles():
+    candidates = [
+        MediaItem(id=1, title_romaji="Pluto", title_english="PLUTO"),
+        MediaItem(id=2, title_romaji="Odd Taxi", title_english="ODDTAXI"),
+        MediaItem(
+            id=3,
+            title_romaji="Kaguya-sama wa Kokurasetai",
+            title_english="Kaguya-sama: Love is War",
+        ),
+    ]
+
+    remaining = _exclude_feedback_candidates(
+        candidates,
+        ("pluto", "Kaguya sama Love is War"),
+    )
+
+    assert [item.title_romaji for item in remaining] == ["Odd Taxi"]
+
+
+def test_run_stops_before_model_when_feedback_excludes_every_candidate(monkeypatch):
+    source_data = SourceData(
+        username="member",
+        history=[MediaItem(id=10, title_romaji="Monster", score=9)],
+        candidates=[MediaItem(id=20, title_romaji="Pluto")],
+        source_name="anilist",
+    )
+    adapter = SimpleNamespace(fetch=lambda *_args, **_kwargs: source_data)
+    monkeypatch.setattr(engine, "get_adapter", lambda _source: adapter)
+    monkeypatch.setattr(
+        engine,
+        "get_llm",
+        lambda *_args, **_kwargs: pytest.fail("the model must not be called"),
+    )
+    config = OmakaseConfig(
+        source="anilist",
+        username="member",
+        llm_url="https://api.deepseek.com",
+        model="deepseek-v4-pro",
+        profile_path="",
+        llm_type="deepseek",
+        excluded_titles=("PLUTO",),
+    )
+
+    with pytest.raises(EmptyHistoryError, match="feedback history"):
+        engine.run(config)

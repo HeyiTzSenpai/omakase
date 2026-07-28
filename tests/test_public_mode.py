@@ -30,6 +30,12 @@ def test_public_mode_promotes_byok_and_keeps_plus_private(monkeypatch):
     assert "LM Studio" not in response.text
     assert "DeepSeek" in response.text
     assert "—" not in response.text
+    assert "/static/account_state.js?v=" in response.text
+    assert 'name="provider_credential"' in response.text
+    assert 'class="masked-credential"' in response.text
+    assert 'name="provider_credential"\n                    type="password"' not in response.text
+    assert 'name="watched-score" value="10"' in response.text
+    assert "{% for" not in response.text
 
 
 def test_public_mode_does_not_mount_plus_routes(monkeypatch):

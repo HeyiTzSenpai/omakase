@@ -28,6 +28,7 @@ from omakase.adapters.base import list_sources
 from omakase.adapters.myanimelist import CandidateSourceError, MALExportError
 from omakase.engine import EmptyHistoryError, RecommendationOutputError
 from omakase.engine import run as run_pipeline
+from omakase.lite import credentials as lite_credentials
 from omakase.lite import db as lite_db
 from omakase.lite import routes as account_routes
 from omakase.lite.routes import api_router as account_api_router
@@ -66,6 +67,7 @@ def _asset_version() -> str:
     assets = (
         _HERE / "static" / "style.css",
         _HERE / "static" / "app.js",
+        _HERE / "static" / "account_state.js",
         _HERE / "static" / "generated" / "omakase-counter-v2.png",
     )
     try:
@@ -213,7 +215,7 @@ def _validate_hosted_provider(
         raise HTTPException(
             status_code=400,
             detail=(
-                "The hosted demo supports OpenAI, Anthropic, Gemini, and OpenRouter. "
+                "The hosted demo supports OpenAI, Anthropic, Gemini, DeepSeek, and OpenRouter. "
                 "Run Omakase on your own machine to use a local model."
             ),
         )
@@ -442,6 +444,7 @@ def _run_recommendation_job(
     req: RecommendRequest,
     cfg: OmakaseConfig,
     user_id: int | None,
+    used_saved_key: bool,
 ) -> None:
     try:
         with _job_lock:
@@ -470,6 +473,16 @@ def _run_recommendation_job(
                     mode=cfg.mode,
                     recommendations=recs,
                 )
+                lite_db.update_remembered_setup(
+                    conn,
+                    user_id=user_id,
+                    provider=cfg.llm_type,
+                    mode=cfg.mode,
+                    source=cfg.source,
+                    source_username=cfg.username,
+                    use_planning=cfg.use_planning,
+                    skip_profile=req.skip_profile,
+                )
                 account_saved = True
             finally:
                 conn.close()
@@ -482,10 +495,17 @@ def _run_recommendation_job(
             account_saved=account_saved,
         )
     except HTTPException as exc:
+        detail = str(exc.detail)
+        if used_saved_key and "rejected your API key" in detail:
+            provider = lite_credentials.PROVIDER_LABELS.get(
+                req.llm_type,
+                req.llm_type.title(),
+            )
+            detail = f"{provider} rejected your saved key. Replace it in My Counter and try again."
         _finish_job(
             job_id,
             status="error",
-            detail=str(exc.detail),
+            detail=detail,
             status_code=exc.status_code,
         )
     finally:
@@ -505,12 +525,43 @@ def start_recommendation_job(req: RecommendRequest, request: Request):
     )
     user = account_routes.request_user(request, require_csrf=True)
     effective_req = req
+    used_saved_key = False
     if user is not None:
         conn = lite_db.connect()
         try:
+            submitted_key = (req.api_key or "").strip()
+            try:
+                if submitted_key:
+                    lite_credentials.save_provider_key(
+                        conn,
+                        user_id=user.id,
+                        provider=req.llm_type,
+                        plaintext_key=submitted_key,
+                    )
+                    resolved_key = submitted_key
+                else:
+                    used_saved_key = True
+                    resolved_key = lite_credentials.load_provider_key(
+                        conn,
+                        user_id=user.id,
+                        provider=req.llm_type,
+                    )
+            except lite_credentials.KeyringUnavailable as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except lite_credentials.SavedCredentialInvalid as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except lite_credentials.CredentialError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            if not resolved_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Paste a key or save one for the selected provider.",
+                )
             stored_profile = lite_db.get_profile(conn, user.id)
+            updates = {"api_key": resolved_key}
             if not req.profile.strip() and not req.skip_profile and stored_profile:
-                effective_req = req.model_copy(update={"profile": stored_profile})
+                updates["profile"] = stored_profile
+            effective_req = req.model_copy(update=updates)
         finally:
             conn.close()
 
@@ -521,6 +572,7 @@ def start_recommendation_job(req: RecommendRequest, request: Request):
             if req.profile.strip() and not req.skip_profile:
                 lite_db.update_profile(conn, user.id, req.profile)
             feedback = lite_db.feedback_context(conn, user.id)
+            cfg.excluded_titles = tuple(lite_db.feedback_titles(conn, user.id))
             if feedback:
                 cfg.taste_profile = "\n\n".join(
                     part for part in (cfg.taste_profile or "", feedback) if part
@@ -558,6 +610,7 @@ def start_recommendation_job(req: RecommendRequest, request: Request):
         req=effective_req,
         cfg=cfg,
         user_id=user.id if user else None,
+        used_saved_key=used_saved_key,
     )
     return {"job_id": job_id, "status": "queued"}
 

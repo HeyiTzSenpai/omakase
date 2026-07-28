@@ -66,6 +66,7 @@ class OmakaseConfig:
     taste_profile: str | None = None  # request-local profile; None loads profile_path
     api_key: str | None = None  # request-local model credential
     mal_client_id: str | None = None  # request-local MAL credential
+    excluded_titles: tuple[str, ...] = ()  # account feedback; never recommend again
 
 
 # Default API base URLs for each backend.

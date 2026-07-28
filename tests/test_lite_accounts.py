@@ -5,13 +5,209 @@ import stat
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from cryptography.fernet import Fernet
 
-from omakase.lite import auth, db
+from omakase.lite import auth, credentials, db
 from omakase.types import Recommendation
 
 
 def _connection(tmp_path):
     return db.connect(tmp_path)
+
+
+def test_account_experience_migration_adds_credentials_scores_and_setup(tmp_path):
+    conn = _connection(tmp_path)
+
+    credential_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(account_provider_keys)")
+    }
+    profile_columns = {row["name"] for row in conn.execute("PRAGMA table_info(account_profiles)")}
+    recommendation_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(account_recommendations)")
+    }
+
+    assert credential_columns == {
+        "user_id",
+        "provider",
+        "encrypted_key",
+        "key_hint",
+        "created_at",
+        "updated_at",
+    }
+    assert {
+        "last_provider",
+        "last_mode",
+        "last_source",
+        "last_source_username",
+        "last_use_planning",
+        "last_skip_profile",
+    } <= profile_columns
+    assert "watched_score" in recommendation_columns
+
+
+def test_provider_key_is_encrypted_at_rest_and_summary_is_redacted(monkeypatch, tmp_path):
+    keyring_path = tmp_path / "lite-keyring"
+    keyring_path.write_bytes(Fernet.generate_key())
+    monkeypatch.setenv("OMAKASE_LITE_KEYRING_FILE", str(keyring_path))
+    conn = _connection(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+
+    credentials.save_provider_key(
+        conn,
+        user_id=user_id,
+        provider="deepseek",
+        plaintext_key="sk-account-secret-1234",
+    )
+
+    stored = conn.execute(
+        "SELECT encrypted_key, key_hint FROM account_provider_keys "
+        "WHERE user_id = ? AND provider = ?",
+        (user_id, "deepseek"),
+    ).fetchone()
+    assert stored is not None
+    assert "sk-account-secret-1234" not in stored["encrypted_key"]
+    assert stored["key_hint"] == "1234"
+    assert (
+        credentials.load_provider_key(
+            conn,
+            user_id=user_id,
+            provider="deepseek",
+        )
+        == "sk-account-secret-1234"
+    )
+    assert credentials.provider_key_summaries(conn, user_id=user_id) == {
+        "deepseek": {"saved": True, "hint": "1234"}
+    }
+
+
+def test_provider_key_replace_and_forget_are_user_scoped(monkeypatch, tmp_path):
+    keyring_path = tmp_path / "lite-keyring"
+    keyring_path.write_bytes(Fernet.generate_key())
+    monkeypatch.setenv("OMAKASE_LITE_KEYRING_FILE", str(keyring_path))
+    conn = _connection(tmp_path)
+    first_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+    second_id = db.create_user(
+        conn,
+        email="friend@example.com",
+        password_hash=auth.hash_password("friend-password"),
+        display_name="Friend",
+    )
+    credentials.save_provider_key(
+        conn,
+        user_id=first_id,
+        provider="deepseek",
+        plaintext_key="sk-owner-original-1111",
+    )
+    credentials.save_provider_key(
+        conn,
+        user_id=second_id,
+        provider="deepseek",
+        plaintext_key="sk-friend-secret-2222",
+    )
+
+    credentials.save_provider_key(
+        conn,
+        user_id=first_id,
+        provider="deepseek",
+        plaintext_key="sk-owner-replacement-3333",
+    )
+    assert (
+        credentials.load_provider_key(conn, user_id=first_id, provider="deepseek")
+        == "sk-owner-replacement-3333"
+    )
+    assert credentials.forget_provider_key(conn, user_id=first_id, provider="deepseek")
+    assert credentials.load_provider_key(conn, user_id=first_id, provider="deepseek") is None
+    assert (
+        credentials.load_provider_key(conn, user_id=second_id, provider="deepseek")
+        == "sk-friend-secret-2222"
+    )
+
+
+def test_provider_keyring_failures_are_safe_and_unknown_providers_are_rejected(
+    monkeypatch,
+    tmp_path,
+):
+    keyring_path = tmp_path / "lite-keyring"
+    keyring_path.write_bytes(Fernet.generate_key())
+    monkeypatch.setenv("OMAKASE_LITE_KEYRING_FILE", str(keyring_path))
+    conn = _connection(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+    credentials.save_provider_key(
+        conn,
+        user_id=user_id,
+        provider="deepseek",
+        plaintext_key="sk-account-secret-1234",
+    )
+
+    keyring_path.write_bytes(Fernet.generate_key())
+    with pytest.raises(credentials.SavedCredentialInvalid) as wrong_key:
+        credentials.load_provider_key(conn, user_id=user_id, provider="deepseek")
+    assert str(wrong_key.value) == (
+        "The saved provider key cannot be used. Replace it and try again."
+    )
+
+    monkeypatch.setenv("OMAKASE_LITE_KEYRING_FILE", str(tmp_path / "missing-keyring"))
+    with pytest.raises(credentials.KeyringUnavailable) as unavailable:
+        credentials.load_provider_key(conn, user_id=user_id, provider="deepseek")
+    assert str(unavailable.value) == "Saved provider keys are temporarily unavailable."
+
+    with pytest.raises(credentials.CredentialError, match="supported model provider"):
+        credentials.save_provider_key(
+            conn,
+            user_id=user_id,
+            provider="other-provider",
+            plaintext_key="secret",
+        )
+
+
+def test_remembered_setup_contains_only_non_secret_member_choices(tmp_path):
+    conn = _connection(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+
+    db.update_remembered_setup(
+        conn,
+        user_id=user_id,
+        provider="deepseek",
+        mode="pro",
+        source="anilist",
+        source_username="owner-list",
+        use_planning=True,
+        skip_profile=False,
+    )
+
+    assert db.get_remembered_setup(conn, user_id) == {
+        "provider": "deepseek",
+        "mode": "pro",
+        "source": "anilist",
+        "source_username": "owner-list",
+        "use_planning": True,
+        "skip_profile": False,
+    }
+    stored = conn.execute(
+        "SELECT * FROM account_profiles WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+    assert "key" not in " ".join(stored.keys()).lower()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
@@ -203,6 +399,8 @@ def test_recommendation_history_feedback_and_list_are_user_scoped(tmp_path):
     context = db.feedback_context(conn, first_id)
     assert "Avoid recommending again: Monster." in context
     assert "Saved for later: Steins;Gate." in context
+    assert db.feedback_titles(conn, first_id) == ["Steins;Gate", "Monster"]
+    assert db.feedback_titles(conn, second_id) == []
 
     try:
         db.set_recommendation_feedback(
@@ -215,3 +413,60 @@ def test_recommendation_history_feedback_and_list_are_user_scoped(tmp_path):
         pass
     else:
         raise AssertionError("a second user changed another account's recommendation")
+
+
+def test_watched_feedback_requires_score_and_other_states_clear_it(tmp_path):
+    conn = _connection(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="owner",
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        mode="fast",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.2,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+            )
+        ],
+    )
+    recommendation_id = saved[0]["id"]
+
+    with pytest.raises(ValueError, match="score from 1 to 10"):
+        db.set_recommendation_feedback(
+            conn,
+            user_id=user_id,
+            recommendation_id=recommendation_id,
+            state="watched",
+        )
+    db.set_recommendation_feedback(
+        conn,
+        user_id=user_id,
+        recommendation_id=recommendation_id,
+        state="watched",
+        watched_score=8,
+    )
+    history_item = db.recommendation_history(conn, user_id)[0]["recommendations"][0]
+    assert history_item["feedback_state"] == "watched"
+    assert history_item["watched_score"] == 8
+    assert "Already watched and rated: Pluto (8/10)." in db.feedback_context(conn, user_id)
+
+    db.set_recommendation_feedback(
+        conn,
+        user_id=user_id,
+        recommendation_id=recommendation_id,
+        state="saved",
+    )
+    changed = db.recommendation_history(conn, user_id)[0]["recommendations"][0]
+    assert changed["feedback_state"] == "saved"
+    assert changed["watched_score"] is None

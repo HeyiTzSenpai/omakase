@@ -1,5 +1,7 @@
 "use strict";
 
+const accountState = window.OmakaseAccountState;
+
 const PROVIDERS = {
   openai: {
     label: "OpenAI",
@@ -56,6 +58,7 @@ let requestController = null;
 let activeJobId = "";
 let accountSession = { authenticated: false };
 let accountSessionLoaded = false;
+let pendingWatchedButton = null;
 
 const byId = (id) => document.getElementById(id);
 
@@ -116,6 +119,18 @@ function updateProvider() {
   byId("model").value = override || provider[mode];
   byId("key-hint").textContent = provider.hint;
   byId("model-hint").textContent = `${mode === "fast" ? "Quick" : "Deep"} currently selects ${provider[mode]}.`;
+  const saved = accountState.hasSavedProviderKey(accountSession, name);
+  const hint = accountSession.provider_keys?.[name]?.hint;
+  if (saved) {
+    byId("api_key").placeholder = `Saved key ending ${hint} — leave blank to use it`;
+    byId("key-status").textContent = `${provider.label} key saved to your account. Leave this blank to use it, or paste a replacement.`;
+  } else if (accountSession.authenticated) {
+    byId("api_key").placeholder = `Paste a ${provider.label} key to save it`;
+    byId("key-status").textContent = `No ${provider.label} key saved yet. The next key you use will be encrypted for your account.`;
+  } else {
+    byId("api_key").placeholder = "Paste for this request only";
+    byId("key-status").textContent = "";
+  }
   updateSelectedCards(".choice-card");
 }
 
@@ -143,8 +158,17 @@ function updateWordCount() {
 
 function validateCourse(name) {
   if (name === "model") {
-    if (!byId("api_key").value.trim()) {
-      showError("Paste the key for the provider you selected.", "model");
+    const provider = byId("llm_type").value;
+    if (
+      !byId("api_key").value.trim()
+      && !accountState.hasSavedProviderKey(accountSession, provider)
+    ) {
+      showError(
+        accountSession.authenticated
+          ? "Paste a key for this provider, or choose a provider with a saved key."
+          : "Paste the key for the provider you selected.",
+        "model",
+      );
       byId("api_key").focus();
       return false;
     }
@@ -229,6 +253,10 @@ function setLoading(active) {
   const form = byId("setup-form");
   loading.hidden = !active;
   form.hidden = active;
+  byId("run-btn").disabled = active;
+  byId("recommend-again").disabled = active;
+  byId("start-over").disabled = active;
+  byId("results").setAttribute("aria-busy", String(active));
   if (active) {
     loadingStartedAt = Date.now();
     renderLoading();
@@ -304,15 +332,19 @@ async function pollRecommendationJob(jobId, signal) {
 
 async function runRecommendations(event) {
   event.preventDefault();
+  await submitRecommendations(false);
+}
+
+async function submitRecommendations(preserveResults) {
+  if (!accountSessionLoaded) await loadAccountSession();
   for (const course of COURSE_ORDER) {
     if (!validateCourse(course)) return;
   }
 
   requestController = new AbortController();
   setLoading(true);
-  byId("results").hidden = true;
+  if (!preserveResults) byId("results").hidden = true;
   try {
-    if (!accountSessionLoaded) await loadAccountSession();
     const headers = { "Content-Type": "application/json" };
     if (accountSession.authenticated) headers["X-CSRF-Token"] = accountSession.csrf_token;
     const response = await fetch("/api/recommend/jobs", {
@@ -329,6 +361,7 @@ async function runRecommendations(event) {
     const data = await pollRecommendationJob(activeJobId, requestController.signal);
     displayResults(data);
     byId("api_key").value = "";
+    if (data.account_saved) await loadAccountSession(false);
   } catch (error) {
     if (error.name === "AbortError") showError("The menu was cancelled before it could be saved.", "taste");
     else showError(error.message || "Omakase could not finish this menu.", "taste");
@@ -379,9 +412,10 @@ function displayResults(data) {
       score.append(createText("strong", "", Number(recommendation.predicted_score || 0).toFixed(1)), createText("span", "", "/ 10 fit"));
 
       article.append(number, body, score);
-      if (recommendation.url) {
+      const safeUrl = accountState.safeExternalUrl(recommendation.url);
+      if (safeUrl) {
         const link = createText("a", "recommendation__link", "Open anime page ↗");
-        link.href = recommendation.url;
+        link.href = safeUrl;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
         link.setAttribute("aria-label", `Open ${recommendation.title} in a new tab`);
@@ -400,9 +434,22 @@ function displayResults(data) {
           button.type = "button";
           button.dataset.feedback = state;
           button.dataset.recommendationId = recommendation.id;
+          button.dataset.recommendationTitle = recommendation.title;
+          button.dataset.defaultLabel = label;
           button.setAttribute("aria-pressed", String(recommendation.feedback_state === state));
+          if (
+            state === "watched"
+            && recommendation.feedback_state === state
+            && recommendation.watched_score
+          ) {
+            button.textContent = `Watched · ${recommendation.watched_score}/10`;
+            button.dataset.watchedScore = recommendation.watched_score;
+          }
           actions.appendChild(button);
         });
+        const status = createText("p", "recommendation__feedback-status", "");
+        status.setAttribute("aria-live", "polite");
+        actions.appendChild(status);
         article.appendChild(actions);
       }
       list.appendChild(article);
@@ -410,32 +457,80 @@ function displayResults(data) {
   }
 
   results.hidden = false;
+  byId("recommend-again").hidden = !data.account_saved;
   results.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
-async function saveFeedback(button) {
+async function saveFeedback(button, watchedScore = null) {
   if (!accountSession.authenticated) return;
   const state = button.dataset.feedback;
-  const response = await fetch(`/api/account/recommendations/${button.dataset.recommendationId}/feedback`, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-Token": accountSession.csrf_token,
-    },
-    body: JSON.stringify({ state }),
-  });
-  const data = await readApiResponse(response);
-  if (!response.ok) {
-    showError(data.detail || "That preference could not be saved.", "taste");
-    return;
+  const actions = button.closest(".recommendation__actions");
+  const status = actions.querySelector(".recommendation__feedback-status");
+  const buttons = actions.querySelectorAll("[data-feedback]");
+  let payload;
+  try {
+    payload = accountState.feedbackPayload(state, watchedScore);
+  } catch (error) {
+    status.textContent = error.message;
+    return false;
   }
-  button.parentElement.querySelectorAll("[data-feedback]").forEach((item) => {
-    item.setAttribute("aria-pressed", String(item === button));
-  });
+  buttons.forEach((item) => { item.disabled = true; });
+  status.textContent = "Saving…";
+  try {
+    const response = await fetch(`/api/account/recommendations/${button.dataset.recommendationId}/feedback`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": accountSession.csrf_token,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await readApiResponse(response);
+    if (!response.ok) throw new Error(data.detail || "That preference could not be saved.");
+    buttons.forEach((item) => {
+      item.setAttribute("aria-pressed", String(item === button));
+      item.textContent = item.dataset.defaultLabel;
+      delete item.dataset.watchedScore;
+    });
+    if (state === "watched") {
+      button.textContent = `Watched · ${data.watched_score}/10`;
+      button.dataset.watchedScore = data.watched_score;
+    }
+    status.textContent = accountState.feedbackConfirmation(data.state, data.watched_score);
+    return true;
+  } catch (error) {
+    status.textContent = error.message || "That preference could not be saved.";
+    return false;
+  } finally {
+    buttons.forEach((item) => { item.disabled = false; });
+  }
 }
 
-async function loadAccountSession() {
+function applyRememberedSetup() {
+  const setup = accountState.rememberedSetup(accountSession);
+  if (!setup.provider) return;
+  const provider = document.querySelector(`input[name="provider"][value="${setup.provider}"]`);
+  const mode = document.querySelector(`input[name="model-mode"][value="${setup.mode}"]`);
+  const source = document.querySelector(`input[name="list-source"][value="${setup.source}"]`);
+  if (provider) provider.checked = true;
+  if (mode) mode.checked = true;
+  if (source) source.checked = true;
+  byId("username").value = setup.sourceUsername;
+  byId("use_planning").checked = setup.usePlanning;
+  byId("skip_profile").checked = setup.skipProfile;
+  updateProvider();
+  updateSource();
+  updateProfileState();
+}
+
+function setPrivacyReceipt(strongText, detailText) {
+  const strong = document.createElement("strong");
+  strong.textContent = strongText;
+  byId("privacy-receipt-copy").replaceChildren(strong, ` ${detailText}`);
+}
+
+async function loadAccountSession(applySetup = true) {
   try {
     const response = await fetch("/api/account/session", {
       credentials: "same-origin",
@@ -452,13 +547,23 @@ async function loadAccountSession() {
   byId("account-home-link").hidden = !signedIn;
   if (signedIn) {
     byId("account-home-link").textContent = `${accountSession.display_name} · My counter`;
-    byId("privacy-receipt-copy").innerHTML = "<strong>Your key remains request-local.</strong> Your Lite account saves taste notes, completed recommendations, and your feedback—but never the model key.";
-    byId("history-privacy-copy").textContent = "Your history and notes go to that provider for this request. Completed picks and your feedback are saved to your Lite account.";
+    setPrivacyReceipt(
+      "Encrypted for your account.",
+      "Your Lite account remembers provider keys, taste notes, completed recommendations, and feedback. A key is decrypted only for a request to its provider.",
+    );
+    byId("history-privacy-copy").textContent = "Your history and notes go to that provider for this request. Completed picks, scores, and feedback are saved to your Lite account.";
     if (accountSession.taste_profile) {
       byId("profile").value = accountSession.taste_profile;
       updateWordCount();
     }
+    if (applySetup) applyRememberedSetup();
+  } else {
+    setPrivacyReceipt(
+      "Request-local by design.",
+      "Your key and taste notes are used for this menu and never written to disk, logs, cookies, or a database.",
+    );
   }
+  updateProvider();
 }
 
 async function cancelActiveRequest() {
@@ -475,8 +580,60 @@ async function cancelActiveRequest() {
 function startOver() {
   byId("results").hidden = true;
   showCourse("model", false);
-  byId("counter").scrollIntoView({ behavior: "smooth", block: "start" });
-  byId("api_key").focus({ preventScroll: true });
+  const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  byId("counter").scrollIntoView({ behavior, block: "start" });
+  if (accountState.hasSavedProviderKey(accountSession, byId("llm_type").value)) {
+    byId("model-course-title").setAttribute("tabindex", "-1");
+    byId("model-course-title").focus({ preventScroll: true });
+  } else {
+    byId("api_key").focus({ preventScroll: true });
+  }
+}
+
+function openWatchedDialog(button) {
+  pendingWatchedButton = button;
+  const dialog = byId("watched-dialog");
+  byId("watched-dialog-title").textContent = `What score did you give ${button.dataset.recommendationTitle}?`;
+  byId("watched-dialog-error").hidden = true;
+  byId("watched-score-form").reset();
+  const priorScore = button.dataset.watchedScore;
+  if (priorScore) {
+    const prior = dialog.querySelector(`input[name="watched-score"][value="${priorScore}"]`);
+    if (prior) prior.checked = true;
+  }
+  dialog.showModal();
+}
+
+async function submitWatchedScore(event) {
+  event.preventDefault();
+  if (!pendingWatchedButton) return;
+  const score = selectedValue("watched-score");
+  const dialogError = byId("watched-dialog-error");
+  try {
+    accountState.feedbackPayload("watched", score);
+  } catch (error) {
+    dialogError.textContent = error.message;
+    dialogError.hidden = false;
+    return;
+  }
+  const saved = await saveFeedback(pendingWatchedButton, score);
+  if (saved) {
+    byId("watched-dialog").close();
+    pendingWatchedButton.focus();
+    pendingWatchedButton = null;
+  } else {
+    const cardStatus = pendingWatchedButton
+      .closest(".recommendation__actions")
+      ?.querySelector(".recommendation__feedback-status");
+    dialogError.textContent = cardStatus?.textContent || "That score could not be saved.";
+    dialogError.hidden = false;
+  }
+}
+
+function closeWatchedDialog() {
+  byId("watched-dialog").close();
+  pendingWatchedButton?.focus();
+  pendingWatchedButton = null;
 }
 
 function bindEvents() {
@@ -496,14 +653,22 @@ function bindEvents() {
   byId("setup-form").addEventListener("submit", runRecommendations);
   byId("cancel-request").addEventListener("click", cancelActiveRequest);
   byId("start-over").addEventListener("click", startOver);
+  byId("recommend-again").addEventListener("click", () => submitRecommendations(true));
   byId("results-list").addEventListener("click", (event) => {
     const button = event.target.closest("[data-feedback]");
-    if (button) saveFeedback(button);
+    if (!button) return;
+    if (button.dataset.feedback === "watched") openWatchedDialog(button);
+    else saveFeedback(button);
+  });
+  byId("watched-score-form").addEventListener("submit", submitWatchedScore);
+  byId("cancel-watched-score").addEventListener("click", closeWatchedDialog);
+  byId("watched-dialog").addEventListener("cancel", () => {
+    pendingWatchedButton = null;
   });
   byId("toggle-key").addEventListener("click", () => {
     const key = byId("api_key");
-    const reveal = key.type === "password";
-    key.type = reveal ? "text" : "password";
+    const reveal = key.classList.contains("masked-credential");
+    key.classList.toggle("masked-credential", !reveal);
     byId("toggle-key").textContent = reveal ? "Hide" : "Show";
     byId("toggle-key").setAttribute("aria-pressed", String(reveal));
   });

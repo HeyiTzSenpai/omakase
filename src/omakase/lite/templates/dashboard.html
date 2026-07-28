@@ -5,7 +5,7 @@
   <aside class="dashboard-side">
     <p class="eyebrow">Omakase Lite</p>
     <h1>{{ user.display_name }}’s counter</h1>
-    <p>Your recommendations live here. Your model key never does.</p>
+    <p>Your recommendations and encrypted provider keys live with this account.</p>
     <a class="button-link" href="/">Cook a new menu</a>
     <form method="post" action="/account/logout">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -13,6 +13,48 @@
     </form>
   </aside>
   <div class="dashboard-main">
+    <section class="dashboard-section" aria-labelledby="provider-keys-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">Model access</p><h2 id="provider-keys-title">Saved provider keys</h2></div>
+        <span id="provider-key-status" aria-live="polite"></span>
+      </div>
+      <p class="section-copy">Keys are encrypted for your account and are never shown again. Replace one by saving a new key for the same provider.</p>
+        <ul class="provider-key-list" id="provider-key-list" {% if not provider_keys %}hidden{% endif %}>
+        {% for provider, item in provider_keys.items() %}
+          <li data-saved-provider="{{ provider }}">
+            <div><strong>{{ provider_options[provider] }}</strong><small>Saved · ending {{ item.hint }}</small></div>
+            <button class="text-button" type="button" data-forget-provider="{{ provider }}">Forget key</button>
+          </li>
+        {% endfor %}
+        </ul>
+        <p class="empty-state" id="provider-key-empty" {% if provider_keys %}hidden{% endif %}>No provider key saved yet.</p>
+      <div class="provider-key-form">
+        <label for="account-key-provider">Provider
+          <select id="account-key-provider">
+          {% for provider, label in provider_options.items() %}
+            <option value="{{ provider }}">{{ label }}</option>
+          {% endfor %}
+          </select>
+        </label>
+        <label for="account-provider-credential">New provider key
+          <input
+            id="account-provider-credential"
+            name="account_provider_credential"
+            class="masked-credential"
+            type="text"
+            autocomplete="off"
+            autocapitalize="off"
+            data-1p-ignore
+            data-bwignore
+            data-lpignore="true"
+            data-form-type="other"
+            spellcheck="false"
+            placeholder="Paste a new key"
+          >
+        </label>
+        <button id="save-provider-key" type="button">Save encrypted key</button>
+      </div>
+    </section>
     <section class="dashboard-section" aria-labelledby="taste-title">
       <div class="section-heading">
         <div><p class="eyebrow">Palate note</p><h2 id="taste-title">What should the chef remember?</h2></div>
@@ -39,7 +81,7 @@
           <summary><span>{{ run.created_at }} · {{ run.provider }} / {{ run.mode }}</span><strong>{{ run.recommendations|length }} picks</strong></summary>
           <ol class="recommendation-list">
           {% for item in run.recommendations %}
-            <li data-recommendation-id="{{ item.id }}"><div><a href="{{ item.url or '#' }}">{{ item.title }}</a><p>{{ item.reasoning }}</p><small>{{ item.feedback_state|replace('_', ' ') }}</small></div><strong>{{ item.predicted_score }}</strong></li>
+            <li data-recommendation-id="{{ item.id }}"><div><a href="{{ item.url or '#' }}">{{ item.title }}</a><p>{{ item.reasoning }}</p><small>{{ item.feedback_state|replace('_', ' ') }}{% if item.feedback_state == 'watched' and item.watched_score %} · {{ item.watched_score }}/10{% endif %}</small></div><strong>{{ item.predicted_score }}</strong></li>
           {% endfor %}
           </ol>
         </details>

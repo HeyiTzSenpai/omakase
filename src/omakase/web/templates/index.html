@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=Newsreader:opsz,wght@6..72,400;6..72,500&amp;display=swap">
   <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/account_state.js?v={{ asset_version }}" defer></script>
   <script src="/static/app.js?v={{ asset_version }}" defer></script>
 </head>
 <body>
@@ -136,10 +137,24 @@
               <div class="field field--wide">
                 <label for="api_key">Provider key</label>
                 <div class="secret-field">
-                  <input id="api_key" name="api_key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste for this request only" required>
+                  <input
+                    id="api_key"
+                    name="provider_credential"
+                    class="masked-credential"
+                    type="text"
+                    autocomplete="off"
+                    autocapitalize="off"
+                    data-1p-ignore
+                    data-bwignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    spellcheck="false"
+                    placeholder="Paste for this request only"
+                  >
                   <button id="toggle-key" class="text-button" type="button" aria-pressed="false">Show</button>
                 </div>
                 <p class="field__hint" id="key-hint">Create or manage a key in your OpenAI account.</p>
+                <p class="key-status" id="key-status" aria-live="polite"></p>
               </div>
               <fieldset class="field field--wide mode-field">
                 <legend>Recommendation depth</legend>
@@ -262,11 +277,40 @@
         </div>
         <div>
           <p id="results-meta"></p>
-          <button id="start-over" class="text-button" type="button">Prepare another menu</button>
+          <div class="results__actions">
+            <button id="recommend-again" class="button button--primary" type="button" hidden>Use my feedback and cook another menu</button>
+            <button id="start-over" class="text-button" type="button">Adjust setup</button>
+          </div>
         </div>
       </header>
       <div class="results-list" id="results-list"></div>
     </section>
+
+    <dialog class="score-dialog" id="watched-dialog" aria-labelledby="watched-dialog-title">
+      <form id="watched-score-form" method="dialog">
+        <p class="course-label">Already watched</p>
+        <h2 id="watched-dialog-title">What score did you give it?</h2>
+        <p id="watched-dialog-copy">Your score becomes part of your Omakase taste history.</p>
+        <fieldset class="score-grid">
+          <legend>Score from 1 to 10</legend>
+          <label><input type="radio" name="watched-score" value="1"><span>1</span></label>
+          <label><input type="radio" name="watched-score" value="2"><span>2</span></label>
+          <label><input type="radio" name="watched-score" value="3"><span>3</span></label>
+          <label><input type="radio" name="watched-score" value="4"><span>4</span></label>
+          <label><input type="radio" name="watched-score" value="5"><span>5</span></label>
+          <label><input type="radio" name="watched-score" value="6"><span>6</span></label>
+          <label><input type="radio" name="watched-score" value="7"><span>7</span></label>
+          <label><input type="radio" name="watched-score" value="8"><span>8</span></label>
+          <label><input type="radio" name="watched-score" value="9"><span>9</span></label>
+          <label><input type="radio" name="watched-score" value="10"><span>10</span></label>
+        </fieldset>
+        <p class="dialog-error" id="watched-dialog-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button class="button button--quiet" id="cancel-watched-score" type="button">Cancel</button>
+          <button class="button button--primary" type="submit">Save score</button>
+        </div>
+      </form>
+    </dialog>
   </main>
 
   <footer class="footer">

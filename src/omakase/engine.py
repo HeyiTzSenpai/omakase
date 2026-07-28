@@ -24,6 +24,29 @@ class RecommendationOutputError(RuntimeError):
     """The model response could not be turned into a recommendation menu."""
 
 
+def _normalized_title(value: str) -> str:
+    """Normalize punctuation and casing for exact cross-source title matches."""
+    return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def _exclude_feedback_candidates(
+    candidates: list[MediaItem],
+    excluded_titles: tuple[str, ...],
+) -> list[MediaItem]:
+    """Remove candidates that a member already acted on in Omakase."""
+    excluded = {normalized for title in excluded_titles if (normalized := _normalized_title(title))}
+    if not excluded:
+        return list(candidates)
+    return [
+        candidate
+        for candidate in candidates
+        if all(
+            not title or _normalized_title(title) not in excluded
+            for title in (candidate.title_romaji, candidate.title_english)
+        )
+    ]
+
+
 def _parse_recommendations(raw: str) -> list[Recommendation]:
     """Parse LLM JSON output into Recommendation objects. Graceful on failure."""
     cleaned = raw.strip()
@@ -156,7 +179,16 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
             "Double-check the username (it's case-sensitive on some sources) "
             "and make sure the list is public."
         )
+    data.candidates = _exclude_feedback_candidates(
+        data.candidates,
+        cfg.excluded_titles,
+    )
     if not data.candidates:
+        if cfg.excluded_titles:
+            raise EmptyHistoryError(
+                "Every available candidate is already in your Omakase feedback history. "
+                "Try a larger pool or change Plan to Watch."
+            )
         if cfg.use_planning:
             raise EmptyHistoryError(
                 f"Your {cfg.source} Plan-to-Watch list is empty. "

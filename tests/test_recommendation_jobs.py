@@ -5,9 +5,11 @@ from io import BytesIO
 from threading import Event
 from urllib.error import HTTPError
 
+import httpx
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from omakase.lite import auth, db, routes
+from omakase.lite import auth, credentials, db, routes
 from omakase.types import Recommendation
 from omakase.web import server
 
@@ -16,6 +18,9 @@ def _client(monkeypatch, tmp_path) -> TestClient:
     monkeypatch.setenv("OMAKASE_LITE_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("OMAKASE_ACCOUNT_SECURE_COOKIE", "false")
     monkeypatch.setenv("OMAKASE_PUBLIC_HOSTED", "true")
+    keyring_path = tmp_path / "lite-keyring"
+    keyring_path.write_bytes(Fernet.generate_key())
+    monkeypatch.setenv("OMAKASE_LITE_KEYRING_FILE", str(keyring_path))
     routes.reset_rate_limits()
     server.reset_recommendation_jobs()
     return TestClient(server.app, base_url="https://omakase.example")
@@ -159,6 +164,8 @@ def test_account_job_saves_results_and_uses_profile_feedback_context(
 
     def fake_pipeline(cfg):
         captured["profile"] = cfg.taste_profile
+        captured["key"] = cfg.api_key
+        captured["excluded_titles"] = cfg.excluded_titles
         return [
             Recommendation(
                 title="Odd Taxi",
@@ -185,11 +192,135 @@ def test_account_job_saves_results_and_uses_profile_feedback_context(
     assert result["recommendations"][0]["feedback_state"] == "neutral"
     assert "Quiet mysteries with tight plotting." in captured["profile"]
     assert "Avoid recommending again: A Repeat I Dislike." in captured["profile"]
+    assert captured["excluded_titles"] == ("A Repeat I Dislike",)
+    assert captured["key"] == "request-only-secret"
 
     conn = db.connect(tmp_path)
     history = db.recommendation_history(conn, user_id)
+    saved_key = credentials.load_provider_key(
+        conn,
+        user_id=user_id,
+        provider="deepseek",
+    )
+    remembered_setup = db.get_remembered_setup(conn, user_id)
     conn.close()
     assert history[0]["recommendations"][0]["title"] == "Odd Taxi"
+    assert saved_key == "request-only-secret"
+    assert remembered_setup == {
+        "provider": "deepseek",
+        "mode": "pro",
+        "source": "anilist",
+        "source_username": "friend",
+        "use_planning": False,
+        "skip_profile": False,
+    }
+
+
+def test_account_job_uses_saved_provider_key_when_request_omits_it(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    conn = db.connect(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+    credentials.save_provider_key(
+        conn,
+        user_id=user_id,
+        provider="deepseek",
+        plaintext_key="sk-saved-account-key",
+    )
+    conn.close()
+    client.post(
+        "/account/login",
+        data={"email": "owner@example.com", "password": "owner-password"},
+    )
+    csrf = client.get("/api/account/session").json()["csrf_token"]
+    captured = {}
+
+    def fake_pipeline(cfg):
+        captured["key"] = cfg.api_key
+        return [
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.1,
+                reasoning="A careful science-fiction mystery.",
+                best_match_from_history="Monster",
+            )
+        ]
+
+    monkeypatch.setattr(server, "run_pipeline", fake_pipeline)
+    response = client.post(
+        "/api/recommend/jobs",
+        headers={"X-CSRF-Token": csrf},
+        json=_payload(api_key=""),
+    )
+
+    assert response.status_code == 202
+    result = _poll_until_terminal(client, response.json()["job_id"])
+    assert result["status"] == "done"
+    assert captured["key"] == "sk-saved-account-key"
+    assert "sk-saved-account-key" not in server.recommendation_jobs_debug_snapshot()
+
+
+def test_guest_job_never_persists_provider_key(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setattr(server, "run_pipeline", lambda _cfg: [])
+
+    response = client.post("/api/recommend/jobs", json=_payload())
+
+    assert response.status_code == 202
+    _poll_until_terminal(client, response.json()["job_id"])
+    conn = db.connect(tmp_path)
+    try:
+        count = conn.execute("SELECT COUNT(*) AS count FROM account_provider_keys").fetchone()
+        assert count["count"] == 0
+    finally:
+        conn.close()
+
+
+def test_saved_provider_key_auth_failure_tells_member_to_replace_it(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    conn = db.connect(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+    credentials.save_provider_key(
+        conn,
+        user_id=user_id,
+        provider="deepseek",
+        plaintext_key="sk-expired-saved-key",
+    )
+    conn.close()
+    client.post(
+        "/account/login",
+        data={"email": "owner@example.com", "password": "owner-password"},
+    )
+    csrf = client.get("/api/account/session").json()["csrf_token"]
+
+    def reject_saved_key(_cfg):
+        request = httpx.Request("POST", "https://api.deepseek.com/chat/completions")
+        response = httpx.Response(401, request=request)
+        raise httpx.HTTPStatusError("unauthorized", request=request, response=response)
+
+    monkeypatch.setattr(server, "run_pipeline", reject_saved_key)
+    started = client.post(
+        "/api/recommend/jobs",
+        headers={"X-CSRF-Token": csrf},
+        json=_payload(api_key=""),
+    )
+
+    assert started.status_code == 202
+    result = _poll_until_terminal(client, started.json()["job_id"])
+    assert result["status"] == "error"
+    assert result["detail"] == (
+        "DeepSeek rejected your saved key. Replace it in My Counter and try again."
+    )
+    assert "sk-expired-saved-key" not in repr(result)
 
 
 def test_signed_in_job_requires_csrf(monkeypatch, tmp_path):

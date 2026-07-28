@@ -8,14 +8,16 @@ import threading
 import time
 from collections import defaultdict, deque
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from omakase.lite import auth, db
+from omakase.lite import auth, credentials, db
 from omakase.lite.models import AccountUser
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,19 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "tem
 _COOKIE_NAME = "omakase_account"
 _rate_lock = threading.Lock()
 _rate_events: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+
+
+class ProviderKeyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_key: SecretStr
+
+
+class FeedbackInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["neutral", "not_interested", "saved", "watched"]
+    watched_score: int | None = Field(default=None, ge=1, le=10, strict=True)
 
 
 def reset_rate_limits() -> None:
@@ -349,6 +364,11 @@ async def account_dashboard(request: Request):
                 "taste_profile": db.get_profile(conn, user.id),
                 "saved": db.saved_list(conn, user.id),
                 "history": db.recommendation_history(conn, user.id),
+                "provider_keys": credentials.provider_key_summaries(
+                    conn,
+                    user_id=user.id,
+                ),
+                "provider_options": credentials.PROVIDER_LABELS,
             },
         )
     finally:
@@ -479,9 +499,55 @@ async def account_session(request: Request):
             "role": user.role,
             "csrf_token": _csrf_for_session(request, conn),
             "taste_profile": db.get_profile(conn, user.id),
+            "provider_keys": credentials.provider_key_summaries(
+                conn,
+                user_id=user.id,
+            ),
+            "remembered_setup": db.get_remembered_setup(conn, user.id),
         }
     finally:
         conn.close()
+
+
+@api_router.put("/provider-keys/{provider}")
+async def save_provider_key(provider: str, payload: ProviderKeyInput, request: Request):
+    conn = db.connect()
+    try:
+        user = _require_user(request, conn)
+        _validate_csrf(request, conn, request.headers.get("X-CSRF-Token", ""))
+        try:
+            return credentials.save_provider_key(
+                conn,
+                user_id=user.id,
+                provider=provider,
+                plaintext_key=payload.provider_key.get_secret_value(),
+            )
+        except credentials.KeyringUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except credentials.CredentialError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@api_router.delete("/provider-keys/{provider}")
+async def forget_provider_key(provider: str, request: Request):
+    conn = db.connect()
+    try:
+        user = _require_user(request, conn)
+        _validate_csrf(request, conn, request.headers.get("X-CSRF-Token", ""))
+        try:
+            normalized = credentials.validate_provider(provider)
+            credentials.forget_provider_key(
+                conn,
+                user_id=user.id,
+                provider=normalized,
+            )
+        except credentials.CredentialError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+    return {"provider": normalized, "saved": False}
 
 
 @api_router.post("/profile")
@@ -499,18 +565,27 @@ async def save_profile(request: Request):
 
 
 @api_router.post("/recommendations/{recommendation_id}/feedback")
-async def recommendation_feedback(recommendation_id: int, request: Request):
+async def recommendation_feedback(
+    recommendation_id: int,
+    payload: FeedbackInput,
+    request: Request,
+):
     conn = db.connect()
     try:
         user = _require_user(request, conn)
         _validate_csrf(request, conn, request.headers.get("X-CSRF-Token", ""))
-        body = await request.json()
+        if payload.state != "watched" and payload.watched_score is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="A watched score is only valid for Already watched.",
+            )
         try:
             db.set_recommendation_feedback(
                 conn,
                 user_id=user.id,
                 recommendation_id=recommendation_id,
-                state=str(body.get("state", "")),
+                state=payload.state,
+                watched_score=payload.watched_score,
             )
         except db.OwnershipError as exc:
             raise HTTPException(status_code=404, detail="Recommendation not found.") from exc
@@ -518,4 +593,8 @@ async def recommendation_feedback(recommendation_id: int, request: Request):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         conn.close()
-    return {"ok": True, "state": body["state"]}
+    return {
+        "ok": True,
+        "state": payload.state,
+        "watched_score": payload.watched_score if payload.state == "watched" else None,
+    }

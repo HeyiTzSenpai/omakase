@@ -346,6 +346,130 @@ def get_profile(conn: sqlite3.Connection, user_id: int) -> str:
     return row["taste_profile"] if row else ""
 
 
+def update_remembered_setup(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    provider: str,
+    mode: str,
+    source: str,
+    source_username: str,
+    use_planning: bool,
+    skip_profile: bool,
+) -> None:
+    conn.execute(
+        """
+        UPDATE account_profiles
+           SET last_provider = ?,
+               last_mode = ?,
+               last_source = ?,
+               last_source_username = ?,
+               last_use_planning = ?,
+               last_skip_profile = ?,
+               updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = ?
+        """,
+        (
+            provider.strip()[:32],
+            mode.strip()[:16],
+            source.strip()[:32],
+            source_username.strip()[:120],
+            int(use_planning),
+            int(skip_profile),
+            user_id,
+        ),
+    )
+    conn.commit()
+
+
+def get_remembered_setup(conn: sqlite3.Connection, user_id: int) -> dict[str, object]:
+    row = conn.execute(
+        """
+        SELECT last_provider, last_mode, last_source, last_source_username,
+               last_use_planning, last_skip_profile
+          FROM account_profiles
+         WHERE user_id = ?
+        """,
+        (user_id,),
+    ).fetchone()
+    if row is None or not row["last_provider"]:
+        return {}
+    return {
+        "provider": row["last_provider"],
+        "mode": row["last_mode"],
+        "source": row["last_source"],
+        "source_username": row["last_source_username"],
+        "use_planning": bool(row["last_use_planning"]),
+        "skip_profile": bool(row["last_skip_profile"]),
+    }
+
+
+def upsert_provider_key(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    provider: str,
+    encrypted_key: str,
+    key_hint: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO account_provider_keys
+            (user_id, provider, encrypted_key, key_hint)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, provider) DO UPDATE SET
+            encrypted_key = excluded.encrypted_key,
+            key_hint = excluded.key_hint,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (user_id, provider, encrypted_key, key_hint),
+    )
+    conn.commit()
+
+
+def get_provider_key_record(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    provider: str,
+):
+    return conn.execute(
+        """
+        SELECT encrypted_key, key_hint
+          FROM account_provider_keys
+         WHERE user_id = ? AND provider = ?
+        """,
+        (user_id, provider),
+    ).fetchone()
+
+
+def provider_key_records(conn: sqlite3.Connection, *, user_id: int) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT provider, key_hint
+          FROM account_provider_keys
+         WHERE user_id = ?
+         ORDER BY provider
+        """,
+        (user_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_provider_key(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    provider: str,
+) -> bool:
+    cursor = conn.execute(
+        "DELETE FROM account_provider_keys WHERE user_id = ? AND provider = ?",
+        (user_id, provider),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
 def save_recommendation_run(
     conn: sqlite3.Connection,
     *,
@@ -397,6 +521,7 @@ def save_recommendation_run(
                 "url": recommendation.url,
                 "source": recommendation.source,
                 "feedback_state": "neutral",
+                "watched_score": None,
             }
         )
     conn.commit()
@@ -409,16 +534,26 @@ def set_recommendation_feedback(
     user_id: int,
     recommendation_id: int,
     state: str,
+    watched_score: int | None = None,
 ) -> None:
     if state not in _FEEDBACK_STATES:
         raise ValueError("Unknown feedback state.")
+    if state == "watched":
+        if (
+            isinstance(watched_score, bool)
+            or not isinstance(watched_score, int)
+            or not 1 <= watched_score <= 10
+        ):
+            raise ValueError("Already watched needs a score from 1 to 10.")
+    else:
+        watched_score = None
     cursor = conn.execute(
         """
         UPDATE account_recommendations
-           SET feedback_state = ?, feedback_at = CURRENT_TIMESTAMP
+           SET feedback_state = ?, watched_score = ?, feedback_at = CURRENT_TIMESTAMP
          WHERE id = ? AND user_id = ?
         """,
-        (state, recommendation_id, user_id),
+        (state, watched_score, recommendation_id, user_id),
     )
     if cursor.rowcount != 1:
         raise OwnershipError("Recommendation not found.")
@@ -429,7 +564,7 @@ def saved_list(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     rows = conn.execute(
         """
         SELECT id, title, predicted_score, reasoning, best_match_from_history,
-               url, source, feedback_state, created_at
+               url, source, feedback_state, watched_score, created_at
           FROM account_recommendations
          WHERE user_id = ? AND feedback_state = 'saved'
          ORDER BY feedback_at DESC, id DESC
@@ -455,7 +590,7 @@ def recommendation_history(conn: sqlite3.Connection, user_id: int) -> list[dict]
         items = conn.execute(
             """
             SELECT id, title, predicted_score, reasoning, best_match_from_history,
-                   url, source, feedback_state
+                   url, source, feedback_state, watched_score
               FROM account_recommendations
              WHERE run_id = ? AND user_id = ?
              ORDER BY position
@@ -466,10 +601,32 @@ def recommendation_history(conn: sqlite3.Connection, user_id: int) -> list[dict]
     return result
 
 
+def feedback_titles(conn: sqlite3.Connection, user_id: int) -> list[str]:
+    """Return distinct titles the member has explicitly acted on, newest first."""
+    rows = conn.execute(
+        """
+        SELECT title
+          FROM account_recommendations
+         WHERE user_id = ? AND feedback_state != 'neutral'
+         ORDER BY feedback_at DESC, id DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    result: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        title = row["title"].strip()
+        normalized = title.casefold()
+        if title and normalized not in seen:
+            result.append(title)
+            seen.add(normalized)
+    return result
+
+
 def feedback_context(conn: sqlite3.Connection, user_id: int) -> str:
     rows = conn.execute(
         """
-        SELECT title, feedback_state
+        SELECT title, feedback_state, watched_score
           FROM account_recommendations
          WHERE user_id = ? AND feedback_state != 'neutral'
          ORDER BY feedback_at DESC, id DESC
@@ -483,12 +640,15 @@ def feedback_context(conn: sqlite3.Connection, user_id: int) -> str:
         "watched": [],
     }
     for row in rows:
-        grouped[row["feedback_state"]].append(row["title"])
+        value = row["title"]
+        if row["feedback_state"] == "watched" and row["watched_score"] is not None:
+            value = f"{value} ({row['watched_score']}/10)"
+        grouped[row["feedback_state"]].append(value)
     lines: list[str] = []
     if grouped["not_interested"]:
         lines.append(f"Avoid recommending again: {', '.join(grouped['not_interested'])}.")
     if grouped["saved"]:
         lines.append(f"Saved for later: {', '.join(grouped['saved'])}.")
     if grouped["watched"]:
-        lines.append(f"Already watched: {', '.join(grouped['watched'])}.")
+        lines.append(f"Already watched and rated: {', '.join(grouped['watched'])}.")
     return "\n".join(lines)
