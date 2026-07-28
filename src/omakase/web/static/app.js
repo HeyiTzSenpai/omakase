@@ -38,6 +38,13 @@ const PROVIDERS = {
     pro: "anthropic/claude-sonnet-4.6",
     hint: "Use an OpenRouter key with access to the selected model.",
   },
+  openwebui: {
+    label: "OpenWebUI",
+    url: "",
+    fast: "",
+    pro: "",
+    hint: "Use an API key created by your OpenWebUI account.",
+  },
 };
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -111,14 +118,26 @@ function updateProvider() {
   const name = selectedValue("provider") || "openai";
   const provider = PROVIDERS[name];
   const mode = selectedValue("model-mode") || "fast";
+  const isOpenWebUI = name === "openwebui";
   byId("llm_type").value = name;
-  byId("llm_url").value = provider.url;
-  byId("mode").value = mode;
-  byId("model_override").disabled = false;
-  const override = byId("model_override").value.trim();
+  byId("llm_url").value = isOpenWebUI
+    ? byId("openwebui_url").value.trim().replace(/\/+$/, "")
+    : provider.url;
+  byId("mode").value = isOpenWebUI ? "fast" : mode;
+  byId("model_override").disabled = isOpenWebUI;
+  byId("mode-field").hidden = isOpenWebUI;
+  byId("model-override-fields").hidden = isOpenWebUI;
+  document.querySelectorAll(".openwebui-field").forEach((field) => {
+    field.hidden = !isOpenWebUI;
+  });
+  const override = isOpenWebUI
+    ? byId("openwebui_model").value.trim()
+    : byId("model_override").value.trim();
   byId("model").value = override || provider[mode];
   byId("key-hint").textContent = provider.hint;
-  byId("model-hint").textContent = `${mode === "fast" ? "Quick" : "Deep"} currently selects ${provider[mode]}.`;
+  if (!isOpenWebUI) {
+    byId("model-hint").textContent = `${mode === "fast" ? "Quick" : "Deep"} currently selects ${provider[mode]}.`;
+  }
   const saved = accountState.hasSavedProviderKey(accountSession, name);
   const hint = accountSession.provider_keys?.[name]?.hint;
   if (saved) {
@@ -159,6 +178,24 @@ function updateWordCount() {
 function validateCourse(name) {
   if (name === "model") {
     const provider = byId("llm_type").value;
+    if (provider === "openwebui") {
+      let instanceUrl;
+      try {
+        instanceUrl = new URL(byId("openwebui_url").value.trim());
+      } catch {
+        instanceUrl = null;
+      }
+      if (!instanceUrl || instanceUrl.protocol !== "https:" || !instanceUrl.hostname) {
+        showError("Enter the HTTPS URL for your OpenWebUI instance.", "model");
+        byId("openwebui_url").focus();
+        return false;
+      }
+      if (!byId("openwebui_model").value.trim()) {
+        showError("Enter the model ID exactly as it appears in OpenWebUI.", "model");
+        byId("openwebui_model").focus();
+        return false;
+      }
+    }
     if (
       !byId("api_key").value.trim()
       && !accountState.hasSavedProviderKey(accountSession, provider)
@@ -516,6 +553,10 @@ function applyRememberedSetup() {
   if (provider) provider.checked = true;
   if (mode) mode.checked = true;
   if (source) source.checked = true;
+  if (setup.provider === "openwebui") {
+    byId("openwebui_url").value = setup.llmUrl || "";
+    byId("openwebui_model").value = setup.model || "";
+  }
   byId("username").value = setup.sourceUsername;
   byId("use_planning").checked = setup.usePlanning;
   byId("skip_profile").checked = setup.skipProfile;
@@ -645,6 +686,8 @@ function bindEvents() {
   document.querySelectorAll('input[name="provider"], input[name="model-mode"]').forEach((input) => input.addEventListener("change", updateProvider));
   document.querySelectorAll('input[name="list-source"]').forEach((input) => input.addEventListener("change", updateSource));
   byId("model_override").addEventListener("input", updateProvider);
+  byId("openwebui_url").addEventListener("input", updateProvider);
+  byId("openwebui_model").addEventListener("input", updateProvider);
   byId("skip_profile").addEventListener("change", updateProfileState);
   byId("profile").addEventListener("input", updateWordCount);
   byId("mal_export_file").addEventListener("change", onMalFileSelected);

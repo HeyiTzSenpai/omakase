@@ -54,6 +54,9 @@ class OpenAILLM(BaseLLM):
             return _DEEPSEEK_REASONING_MAX_TOKENS
         return _DEFAULT_MAX_TOKENS
 
+    def _chat_completions_url(self) -> str:
+        return f"{self.url.rstrip('/')}/v1/chat/completions"
+
     def generate(
         self,
         prompt: str,
@@ -74,12 +77,19 @@ class OpenAILLM(BaseLLM):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        with httpx.Client(timeout=300) as client:
+        with httpx.Client(timeout=300, follow_redirects=False) as client:
             resp = client.post(
-                f"{self.url}/v1/chat/completions",
+                self._chat_completions_url(),
                 json=payload,
                 headers=headers,
             )
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
+
+
+class OpenWebUILLM(OpenAILLM):
+    """OpenWebUI's bearer-authenticated OpenAI-compatible chat endpoint."""
+
+    def _chat_completions_url(self) -> str:
+        return f"{self.url.rstrip('/')}/api/chat/completions"

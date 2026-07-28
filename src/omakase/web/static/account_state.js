@@ -5,7 +5,14 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.OmakaseAccountState = api;
 }(typeof globalThis === "object" ? globalThis : this, () => {
-  const PROVIDERS = new Set(["openai", "anthropic", "gemini", "deepseek", "openrouter"]);
+  const PROVIDERS = new Set([
+    "openai",
+    "openwebui",
+    "anthropic",
+    "gemini",
+    "deepseek",
+    "openrouter",
+  ]);
   const MODES = new Set(["fast", "pro"]);
   const SOURCES = new Set(["anilist", "myanimelist"]);
   const FEEDBACK_STATES = new Set(["neutral", "not_interested", "saved", "watched"]);
@@ -61,7 +68,7 @@
     ) {
       return {};
     }
-    return {
+    const normalized = {
       provider: setup.provider,
       mode: setup.mode,
       source: setup.source,
@@ -69,6 +76,11 @@
       usePlanning: setup.use_planning === true,
       skipProfile: setup.skip_profile === true,
     };
+    if (setup.provider === "openwebui") {
+      normalized.llmUrl = typeof setup.llm_url === "string" ? setup.llm_url : "";
+      normalized.model = typeof setup.model === "string" ? setup.model : "";
+    }
+    return normalized;
   }
 
   return {

@@ -74,6 +74,7 @@ DEFAULT_URLS: dict[str, str] = {
     "ollama": "http://localhost:11434",
     "lmstudio": "http://localhost:1234",
     "openai": "https://api.openai.com",
+    "openwebui": "http://localhost:3000",
     "anthropic": "https://api.anthropic.com",
     "gemini": "https://generativelanguage.googleapis.com",
     "deepseek": "https://api.deepseek.com",
@@ -96,6 +97,9 @@ MODEL_PRESETS: dict[str, dict[str, str]] = {
     # OpenAI
     "openai-fast": {"model": "gpt-4o-mini", "supports_json": "true"},
     "openai-pro": {"model": "gpt-4o", "supports_json": "true"},
+    # OpenWebUI can front models with different structured-output support.
+    "openwebui-fast": {"model": "qwen2.5:7b", "supports_json": "false"},
+    "openwebui-pro": {"model": "qwen2.5:14b", "supports_json": "false"},
     # Anthropic
     "anthropic-fast": {"model": "claude-haiku-4-5", "supports_json": "false"},
     "anthropic-pro": {"model": "claude-sonnet-4-6", "supports_json": "false"},

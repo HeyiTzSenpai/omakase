@@ -9,9 +9,12 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from omakase.lite import db
 
-ALLOWED_PROVIDERS = frozenset({"openai", "anthropic", "gemini", "deepseek", "openrouter"})
+ALLOWED_PROVIDERS = frozenset(
+    {"openai", "openwebui", "anthropic", "gemini", "deepseek", "openrouter"}
+)
 PROVIDER_LABELS = {
     "openai": "OpenAI",
+    "openwebui": "OpenWebUI",
     "anthropic": "Anthropic",
     "gemini": "Gemini",
     "deepseek": "DeepSeek",

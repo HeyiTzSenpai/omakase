@@ -482,6 +482,8 @@ def update_remembered_setup(
     source_username: str,
     use_planning: bool,
     skip_profile: bool,
+    llm_url: str = "",
+    model: str = "",
 ) -> None:
     conn.execute(
         """
@@ -492,6 +494,8 @@ def update_remembered_setup(
                last_source_username = ?,
                last_use_planning = ?,
                last_skip_profile = ?,
+               last_llm_url = ?,
+               last_model = ?,
                updated_at = CURRENT_TIMESTAMP
          WHERE user_id = ?
         """,
@@ -502,6 +506,8 @@ def update_remembered_setup(
             source_username.strip()[:120],
             int(use_planning),
             int(skip_profile),
+            llm_url.strip()[:2048],
+            model.strip()[:200],
             user_id,
         ),
     )
@@ -512,7 +518,7 @@ def get_remembered_setup(conn: sqlite3.Connection, user_id: int) -> dict[str, ob
     row = conn.execute(
         """
         SELECT last_provider, last_mode, last_source, last_source_username,
-               last_use_planning, last_skip_profile
+               last_use_planning, last_skip_profile, last_llm_url, last_model
           FROM account_profiles
          WHERE user_id = ?
         """,
@@ -520,7 +526,7 @@ def get_remembered_setup(conn: sqlite3.Connection, user_id: int) -> dict[str, ob
     ).fetchone()
     if row is None or not row["last_provider"]:
         return {}
-    return {
+    setup: dict[str, object] = {
         "provider": row["last_provider"],
         "mode": row["last_mode"],
         "source": row["last_source"],
@@ -528,6 +534,10 @@ def get_remembered_setup(conn: sqlite3.Connection, user_id: int) -> dict[str, ob
         "use_planning": bool(row["last_use_planning"]),
         "skip_profile": bool(row["last_skip_profile"]),
     }
+    if row["last_provider"] == "openwebui":
+        setup["llm_url"] = row["last_llm_url"]
+        setup["model"] = row["last_model"]
+    return setup
 
 
 def upsert_provider_key(

@@ -214,8 +214,73 @@ def test_account_experience_migration_adds_credentials_scores_and_setup(tmp_path
         "last_source_username",
         "last_use_planning",
         "last_skip_profile",
+        "last_llm_url",
+        "last_model",
     } <= profile_columns
     assert "watched_score" in recommendation_columns
+
+
+def test_openwebui_migration_preserves_existing_provider_keys(tmp_path):
+    database_path = tmp_path / "omakase-lite.db"
+    conn = sqlite3.connect(database_path)
+    conn.execute(
+        """
+        CREATE TABLE account_migrations (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    for migration_name in (
+        "001-lite-accounts.sql",
+        "002-account-experience.sql",
+        "003-owner-issued-invites.sql",
+        "004-accepted-invitation-ledger.sql",
+    ):
+        conn.executescript((db._MIGRATIONS / migration_name).read_text(encoding="utf-8"))
+        conn.execute("INSERT INTO account_migrations (name) VALUES (?)", (migration_name,))
+    conn.execute(
+        """
+        INSERT INTO account_users (id, email, password_hash, display_name)
+        VALUES (1, 'friend@example.com', 'hash', 'Friend')
+        """
+    )
+    conn.execute(
+        "INSERT INTO account_profiles (user_id, taste_profile) VALUES (1, '')"
+    )
+    conn.execute(
+        """
+        INSERT INTO account_provider_keys
+            (user_id, provider, encrypted_key, key_hint)
+        VALUES (1, 'openai', 'encrypted-value', '1234')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    migrated = db.connect(tmp_path)
+
+    assert dict(
+        migrated.execute(
+            """
+            SELECT user_id, provider, encrypted_key, key_hint
+              FROM account_provider_keys
+            """
+        ).fetchone()
+    ) == {
+        "user_id": 1,
+        "provider": "openai",
+        "encrypted_key": "encrypted-value",
+        "key_hint": "1234",
+    }
+    migrated.execute(
+        """
+        INSERT INTO account_provider_keys
+            (user_id, provider, encrypted_key, key_hint)
+        VALUES (1, 'openwebui', 'another-encrypted-value', '5678')
+        """
+    )
+    migrated.commit()
 
 
 def test_provider_key_is_encrypted_at_rest_and_summary_is_redacted(monkeypatch, tmp_path):
@@ -256,6 +321,36 @@ def test_provider_key_is_encrypted_at_rest_and_summary_is_redacted(monkeypatch, 
     assert credentials.provider_key_summaries(conn, user_id=user_id) == {
         "deepseek": {"saved": True, "hint": "1234"}
     }
+
+
+def test_openwebui_provider_key_is_encrypted_and_supported(monkeypatch, tmp_path):
+    keyring_path = tmp_path / "lite-keyring"
+    keyring_path.write_bytes(Fernet.generate_key())
+    monkeypatch.setenv("OMAKASE_LITE_KEYRING_FILE", str(keyring_path))
+    conn = _connection(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+
+    result = credentials.save_provider_key(
+        conn,
+        user_id=user_id,
+        provider="openwebui",
+        plaintext_key="owui-account-secret-5678",
+    )
+
+    assert result == {"provider": "openwebui", "saved": True, "hint": "5678"}
+    assert (
+        credentials.load_provider_key(
+            conn,
+            user_id=user_id,
+            provider="openwebui",
+        )
+        == "owui-account-secret-5678"
+    )
 
 
 def test_provider_key_replace_and_forget_are_user_scoped(monkeypatch, tmp_path):

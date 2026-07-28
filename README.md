@@ -28,11 +28,11 @@ The result is a short tasting menu instead of an endless popularity feed. Each r
 
 ## Public counter
 
-The hosted site supports request-local keys for OpenAI, Anthropic, Gemini, DeepSeek, and OpenRouter. Both Quick and Deep model presets run as background jobs, so a slower reasoning model can finish without holding one proxy request open. Choose the provider explicitly: DeepSeek and OpenAI keys can share the same `sk-` shape, so key text alone is not a safe provider signal.
+The hosted site supports request-local keys for OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, and owner-approved OpenWebUI instances. Both Quick and Deep model presets run as background jobs, so a slower reasoning model can finish without holding one proxy request open. OpenWebUI asks for the instance URL and the exact model ID shown there. Choose the provider explicitly: several provider keys can share the same shape, so key text alone is not a safe provider signal.
 
 Guest menus remain request-local. The provider key, history, and taste notes are not written to disk, logs, cookies, or a database. Your history and notes are sent to the provider you select so it can generate the menu. That provider's own data policy still applies.
 
-The hosted counter accepts a public AniList username or a MyAnimeList XML export. Local model addresses are intentionally unavailable there because a public server cannot safely or honestly connect to a model running on your computer.
+The hosted counter accepts a public AniList username or a MyAnimeList XML export. Local model addresses are intentionally unavailable there because a public server cannot safely or honestly connect to a model running on your computer. A hosted OpenWebUI URL must use HTTPS and match an origin the Omakase owner explicitly allowlisted.
 
 ### Omakase Lite accounts
 
@@ -49,7 +49,7 @@ Lite saves completed recommendations, the account profile, setup choices, and fe
 
 ## Run it yourself
 
-Self-hosting unlocks local Ollama and LM Studio models as well as the supported cloud providers.
+Self-hosting unlocks local Ollama, LM Studio, and OpenWebUI instances as well as the supported cloud providers.
 
 ```bash
 pip install omakase
@@ -92,9 +92,14 @@ omakase recommend -u your-handle --llm-type gemini
 # DeepSeek
 export OMAKASE_API_KEY=your-key
 omakase recommend -u your-handle --llm-type deepseek --mode pro
+
+# OpenWebUI
+export OMAKASE_API_KEY=your-openwebui-key
+omakase recommend -u your-handle --llm-type openwebui \
+  --llm-url https://models.example.com --model llama3.1:8b
 ```
 
-Supported backends include Ollama, LM Studio, OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Groq, and Together. Use `--model` to override a preset.
+Supported backends include Ollama, LM Studio, OpenWebUI, OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Groq, and Together. Use `--model` to override a preset.
 
 ## The pipeline
 
@@ -125,7 +130,7 @@ Run `omakase recommend --help` for all options. See [CONTRIBUTING.md](CONTRIBUTI
 
 ## Hosted deployment
 
-The base Compose stack persists Lite state in the `omakase_lite_data` volume. Production uses a protected Fernet keyring to encrypt member-saved provider keys:
+The base Compose stack persists Lite state in the `omakase_lite_data` volume. Production uses a protected Fernet keyring to encrypt member-saved provider keys. To enable one or more OpenWebUI instances on the hosted counter, set `OMAKASE_OPENWEBUI_ALLOWED_ORIGINS` to a comma-separated list of exact HTTPS origins (for example, `https://models.example.com`); paths are entered by the visitor and redirects are not followed.
 
 ```bash
 mkdir -p secrets

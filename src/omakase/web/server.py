@@ -15,6 +15,7 @@ import threading
 import time
 from pathlib import Path
 from urllib.error import HTTPError
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import uvicorn
@@ -207,9 +208,18 @@ def _validate_hosted_provider(
     req: RecommendRequest,
     *,
     allow_deepseek_pro: bool = False,
-) -> None:
+) -> str:
     if not _is_hosted_public():
-        return
+        return req.llm_url.strip().rstrip("/")
+    if req.llm_type == "openwebui":
+        if not (req.api_key or "").strip():
+            raise HTTPException(status_code=400, detail="Paste your provider key to continue.")
+        if not req.model.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Enter the OpenWebUI model ID to continue.",
+            )
+        return _validate_openwebui_instance_url(req.llm_url)
     expected = _HOSTED_PROVIDERS.get(req.llm_type)
     if expected is None:
         raise HTTPException(
@@ -237,6 +247,57 @@ def _validate_hosted_provider(
                 else "DeepSeek Deep runs through the background recommendation endpoint."
             )
             raise HTTPException(status_code=400, detail=detail)
+    return expected
+
+
+def _validate_openwebui_instance_url(value: str) -> str:
+    raw = value.strip()
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a valid OpenWebUI instance URL.",
+        ) from exc
+    if parsed.scheme.lower() != "https":
+        raise HTTPException(
+            status_code=400,
+            detail="The hosted demo requires an HTTPS OpenWebUI instance URL.",
+        )
+    if (
+        not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a valid OpenWebUI instance URL.",
+        )
+    clean_path = parsed.path.rstrip("/")
+    if clean_path.lower().endswith("/api/chat/completions"):
+        raise HTTPException(
+            status_code=400,
+            detail="Enter the OpenWebUI instance URL, without /api/chat/completions.",
+        )
+    host = parsed.hostname.lower()
+    authority = f"[{host}]" if ":" in host else host
+    if port is not None and port != 443:
+        authority = f"{authority}:{port}"
+    origin = f"https://{authority}"
+    allowed_origins = {
+        item.strip().rstrip("/").lower()
+        for item in os.environ.get("OMAKASE_OPENWEBUI_ALLOWED_ORIGINS", "").split(",")
+        if item.strip()
+    }
+    if origin.lower() not in allowed_origins:
+        raise HTTPException(
+            status_code=400,
+            detail="This OpenWebUI origin is not enabled by the Omakase owner.",
+        )
+    return urlunsplit(("https", authority, clean_path, "", ""))
 
 
 def _prepare_config(
@@ -244,7 +305,10 @@ def _prepare_config(
     *,
     allow_deepseek_pro: bool = False,
 ) -> OmakaseConfig:
-    _validate_hosted_provider(req, allow_deepseek_pro=allow_deepseek_pro)
+    validated_llm_url = _validate_hosted_provider(
+        req,
+        allow_deepseek_pro=allow_deepseek_pro,
+    )
     export_data: bytes | None = None
     if req.mal_export_b64:
         try:
@@ -286,7 +350,7 @@ def _prepare_config(
         )
 
     llm_url, llm_type, model, supports_json = resolve_model_preset(
-        req.llm_url,
+        validated_llm_url,
         req.llm_type,
         req.model,
         req.mode,
@@ -482,6 +546,8 @@ def _run_recommendation_job(
                     source_username=cfg.username,
                     use_planning=cfg.use_planning,
                     skip_profile=req.skip_profile,
+                    llm_url=cfg.llm_url if cfg.llm_type == "openwebui" else "",
+                    model=cfg.model if cfg.llm_type == "openwebui" else "",
                 )
                 account_saved = True
             finally:

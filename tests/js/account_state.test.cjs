@@ -84,3 +84,30 @@ test("normalizes remembered setup without trusting unknown values", () => {
     {},
   );
 });
+
+test("restores only the non-secret OpenWebUI instance and model choices", () => {
+  assert.deepEqual(
+    state.rememberedSetup({
+      remembered_setup: {
+        provider: "openwebui",
+        mode: "fast",
+        source: "anilist",
+        source_username: "friend",
+        use_planning: false,
+        skip_profile: false,
+        llm_url: "https://models.example.com/team",
+        model: "llama3.1:8b",
+      },
+    }),
+    {
+      provider: "openwebui",
+      mode: "fast",
+      source: "anilist",
+      sourceUsername: "friend",
+      usePlanning: false,
+      skipProfile: false,
+      llmUrl: "https://models.example.com/team",
+      model: "llama3.1:8b",
+    },
+  );
+});

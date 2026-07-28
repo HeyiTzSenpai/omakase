@@ -103,6 +103,65 @@ def test_hosted_demo_accepts_official_deepseek_provider(monkeypatch):
     assert cfg.supports_json_mode is True
 
 
+def test_hosted_demo_accepts_allowlisted_openwebui_instance(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setenv(
+        "OMAKASE_OPENWEBUI_ALLOWED_ORIGINS",
+        " https://models.example.com/ ",
+    )
+    captured = {}
+
+    def fake_run(cfg):
+        captured["cfg"] = cfg
+        return []
+
+    monkeypatch.setattr(server, "run_pipeline", fake_run)
+    payload = _valid_payload() | {
+        "llm_type": "openwebui",
+        "llm_url": "https://models.example.com/team/",
+        "model": "llama3.1:8b",
+    }
+
+    response = client.post("/api/recommend", json=payload)
+
+    assert response.status_code == 200
+    cfg = captured["cfg"]
+    assert cfg.llm_type == "openwebui"
+    assert cfg.llm_url == "https://models.example.com/team"
+    assert cfg.model == "llama3.1:8b"
+    assert cfg.supports_json_mode is False
+
+
+def test_hosted_demo_rejects_unapproved_or_insecure_openwebui_instances(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setenv(
+        "OMAKASE_OPENWEBUI_ALLOWED_ORIGINS",
+        "https://models.example.com",
+    )
+    base = _valid_payload() | {
+        "llm_type": "openwebui",
+        "model": "llama3.1:8b",
+    }
+
+    unapproved = client.post(
+        "/api/recommend",
+        json=base | {"llm_url": "https://other.example.com"},
+    )
+    insecure = client.post(
+        "/api/recommend",
+        json=base | {"llm_url": "http://models.example.com"},
+    )
+
+    assert unapproved.status_code == 400
+    assert unapproved.json()["detail"] == (
+        "This OpenWebUI origin is not enabled by the Omakase owner."
+    )
+    assert insecure.status_code == 400
+    assert insecure.json()["detail"] == (
+        "The hosted demo requires an HTTPS OpenWebUI instance URL."
+    )
+
+
 def test_sync_endpoint_routes_deepseek_pro_to_background_jobs(monkeypatch):
     client = _client(monkeypatch)
     payload = _valid_payload() | {

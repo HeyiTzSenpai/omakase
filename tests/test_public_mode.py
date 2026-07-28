@@ -31,6 +31,9 @@ def test_public_mode_promotes_byok_and_keeps_plus_private(monkeypatch):
     assert "Ollama" not in response.text
     assert "LM Studio" not in response.text
     assert "DeepSeek" in response.text
+    assert "OpenWebUI" in response.text
+    assert 'id="openwebui_url"' in response.text
+    assert 'id="openwebui_model"' in response.text
     assert "—" not in response.text
     assert "/static/account_state.js?v=" in response.text
     assert 'name="provider_credential"' in response.text

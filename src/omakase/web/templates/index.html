@@ -130,9 +130,37 @@
                 <span class="choice-card__mark">R</span>
                 <span><strong>OpenRouter</strong><small>One key, many models</small></span>
               </label>
+              <label class="choice-card">
+                <input type="radio" name="provider" value="openwebui">
+                <span class="choice-card__mark">W</span>
+                <span><strong>OpenWebUI</strong><small>Your hosted model hub</small></span>
+              </label>
             </fieldset>
 
             <div class="field-grid">
+              <div class="field openwebui-field" hidden>
+                <label for="openwebui_url">OpenWebUI URL</label>
+                <input
+                  id="openwebui_url"
+                  type="url"
+                  inputmode="url"
+                  autocomplete="url"
+                  placeholder="https://models.example.com"
+                >
+                <p class="field__hint">Use the instance URL, without /api/chat/completions.</p>
+              </div>
+              <div class="field openwebui-field" hidden>
+                <label for="openwebui_model">Model ID</label>
+                <input
+                  id="openwebui_model"
+                  type="text"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  placeholder="llama3.1:8b"
+                >
+                <p class="field__hint">Enter the model ID exactly as it appears in OpenWebUI.</p>
+              </div>
               <div class="field field--wide">
                 <label for="api_key">Provider key</label>
                 <div class="secret-field">
@@ -155,7 +183,7 @@
                 <p class="field__hint" id="key-hint">Create or manage a key in your OpenAI account.</p>
                 <p class="key-status" id="key-status" aria-live="polite"></p>
               </div>
-              <fieldset class="field field--wide mode-field">
+              <fieldset id="mode-field" class="field field--wide mode-field">
                 <legend>Recommendation depth</legend>
                 <div class="segment-control">
                   <label><input type="radio" name="model-mode" value="fast" checked><span><strong>Quick</strong><small>Lower cost</small></span></label>
@@ -164,7 +192,7 @@
               </fieldset>
             </div>
 
-            <details class="advanced">
+            <details id="model-override-fields" class="advanced">
               <summary>Use a specific model</summary>
               <div class="field">
                 <label for="model_override">Model name</label>

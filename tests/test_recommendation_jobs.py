@@ -264,6 +264,74 @@ def test_account_job_uses_saved_provider_key_when_request_omits_it(monkeypatch, 
     assert "sk-saved-account-key" not in server.recommendation_jobs_debug_snapshot()
 
 
+def test_account_job_remembers_openwebui_instance_and_model(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv(
+        "OMAKASE_OPENWEBUI_ALLOWED_ORIGINS",
+        "https://models.example.com",
+    )
+    conn = db.connect(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+    conn.close()
+    client.post(
+        "/account/login",
+        data={"email": "owner@example.com", "password": "owner-password"},
+    )
+    csrf = client.get("/api/account/session").json()["csrf_token"]
+    captured = {}
+
+    def fake_pipeline(cfg):
+        captured["url"] = cfg.llm_url
+        captured["model"] = cfg.model
+        captured["supports_json"] = cfg.supports_json_mode
+        return []
+
+    monkeypatch.setattr(server, "run_pipeline", fake_pipeline)
+    response = client.post(
+        "/api/recommend/jobs",
+        headers={"X-CSRF-Token": csrf},
+        json=_payload(
+            llm_type="openwebui",
+            llm_url="https://models.example.com/team/",
+            model="llama3.1:8b",
+            mode="fast",
+        ),
+    )
+
+    assert response.status_code == 202
+    result = _poll_until_terminal(client, response.json()["job_id"])
+    assert result["status"] == "done"
+    assert captured == {
+        "url": "https://models.example.com/team",
+        "model": "llama3.1:8b",
+        "supports_json": False,
+    }
+    conn = db.connect(tmp_path)
+    try:
+        assert credentials.load_provider_key(
+            conn,
+            user_id=user_id,
+            provider="openwebui",
+        ) == "request-only-secret"
+        assert db.get_remembered_setup(conn, user_id) == {
+            "provider": "openwebui",
+            "mode": "fast",
+            "source": "anilist",
+            "source_username": "friend",
+            "use_planning": False,
+            "skip_profile": False,
+            "llm_url": "https://models.example.com/team",
+            "model": "llama3.1:8b",
+        }
+    finally:
+        conn.close()
+
+
 def test_guest_job_never_persists_provider_key(monkeypatch, tmp_path):
     client = _client(monkeypatch, tmp_path)
     monkeypatch.setattr(server, "run_pipeline", lambda _cfg: [])

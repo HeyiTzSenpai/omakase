@@ -10,7 +10,7 @@ from omakase.llm.anthropic import AnthropicLLM
 from omakase.llm.base import BaseLLM
 from omakase.llm.gemini import GeminiLLM
 from omakase.llm.ollama import OllamaLLM
-from omakase.llm.openai import OpenAILLM
+from omakase.llm.openai import OpenAILLM, OpenWebUILLM
 
 _REGISTRY: dict[str, type[BaseLLM]] = {}
 
@@ -42,8 +42,9 @@ def list_backends() -> list[str]:
 # Local / self-hosted
 register("ollama")(OllamaLLM)
 
-# OpenAI-compatible: all share the /v1/chat/completions shape
+# OpenAI-compatible protocols; individual providers can use different endpoint paths.
 register("openai")(OpenAILLM)
+register("openwebui")(OpenWebUILLM)
 register("lmstudio")(OpenAILLM)
 register("deepseek")(OpenAILLM)
 register("openrouter")(OpenAILLM)

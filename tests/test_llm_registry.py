@@ -8,7 +8,7 @@ from omakase.llm import get_llm, list_backends
 from omakase.llm.anthropic import AnthropicLLM
 from omakase.llm.gemini import GeminiLLM
 from omakase.llm.ollama import OllamaLLM
-from omakase.llm.openai import OpenAILLM
+from omakase.llm.openai import OpenAILLM, OpenWebUILLM
 
 
 def test_registry_lists_all_expected_backends():
@@ -16,6 +16,7 @@ def test_registry_lists_all_expected_backends():
         "ollama",
         "lmstudio",
         "openai",
+        "openwebui",
         "anthropic",
         "gemini",
         "deepseek",
@@ -31,6 +32,7 @@ def test_registry_lists_all_expected_backends():
     [
         ("ollama", OllamaLLM),
         ("openai", OpenAILLM),
+        ("openwebui", OpenWebUILLM),
         ("lmstudio", OpenAILLM),
         ("deepseek", OpenAILLM),
         ("openrouter", OpenAILLM),

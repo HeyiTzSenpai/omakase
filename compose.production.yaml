@@ -3,6 +3,7 @@
 services:
   omakase:
     environment:
+      OMAKASE_OPENWEBUI_ALLOWED_ORIGINS: ${OMAKASE_OPENWEBUI_ALLOWED_ORIGINS:-}
       OMAKASE_LITE_KEYRING_FILE: /run/secrets/lite_keyring
     secrets:
       - lite_keyring
