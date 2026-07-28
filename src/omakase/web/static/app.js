@@ -27,6 +27,7 @@ const PROVIDERS = {
     url: "https://api.deepseek.com",
     fast: "deepseek-v4-flash",
     pro: "deepseek-v4-pro",
+    fastOnly: true,
     hint: "Use a key from the DeepSeek Platform.",
   },
   openrouter: {
@@ -103,15 +104,24 @@ function updateSelectedCards(selector) {
 
 function updateProvider() {
   const name = selectedValue("provider") || "openai";
-  const mode = selectedValue("model-mode") || "fast";
   const provider = PROVIDERS[name];
+  const fastMode = document.querySelector('input[name="model-mode"][value="fast"]');
+  const proMode = document.querySelector('input[name="model-mode"][value="pro"]');
+  const fastOnly = Boolean(provider.fastOnly);
+  proMode.disabled = fastOnly;
+  proMode.closest("label").hidden = fastOnly;
+  if (fastOnly) fastMode.checked = true;
+  const mode = selectedValue("model-mode") || "fast";
   byId("llm_type").value = name;
   byId("llm_url").value = provider.url;
   byId("mode").value = mode;
-  const override = byId("model_override").value.trim();
+  byId("model_override").disabled = fastOnly;
+  const override = fastOnly ? "" : byId("model_override").value.trim();
   byId("model").value = override || provider[mode];
   byId("key-hint").textContent = provider.hint;
-  byId("model-hint").textContent = `${mode === "fast" ? "Quick" : "Deep"} currently selects ${provider[mode]}.`;
+  byId("model-hint").textContent = fastOnly
+    ? `Hosted DeepSeek uses the verified Fast model, ${provider.fast}.`
+    : `${mode === "fast" ? "Quick" : "Deep"} currently selects ${provider[mode]}.`;
   updateSelectedCards(".choice-card");
 }
 

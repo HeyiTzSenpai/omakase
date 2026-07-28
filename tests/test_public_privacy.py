@@ -103,6 +103,23 @@ def test_hosted_demo_accepts_official_deepseek_provider(monkeypatch):
     assert cfg.supports_json_mode is True
 
 
+def test_hosted_deepseek_rejects_unverified_pro_mode(monkeypatch):
+    client = _client(monkeypatch)
+    payload = _valid_payload() | {
+        "llm_type": "deepseek",
+        "llm_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-pro",
+        "mode": "pro",
+    }
+
+    response = client.post("/api/recommend", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "The hosted DeepSeek option currently supports Fast mode only."
+    )
+
+
 def test_candidate_catalog_failure_is_retryable_and_does_not_blame_the_key(monkeypatch):
     client = _client(monkeypatch)
 

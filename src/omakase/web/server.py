@@ -170,6 +170,11 @@ def _validate_hosted_provider(req: RecommendRequest) -> None:
         )
     if not (req.api_key or "").strip():
         raise HTTPException(status_code=400, detail="Paste your provider key to continue.")
+    if req.llm_type == "deepseek" and (req.mode != "fast" or req.model != "deepseek-v4-flash"):
+        raise HTTPException(
+            status_code=400,
+            detail="The hosted DeepSeek option currently supports Fast mode only.",
+        )
 
 
 @app.post("/api/recommend", response_model=RecommendResponse)
