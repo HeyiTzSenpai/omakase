@@ -254,6 +254,22 @@ function buildPayload() {
   };
 }
 
+async function readApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    throw new Error(
+      response.status >= 500
+        ? "The recommendation service was interrupted. Please try again."
+        : "Omakase received an unexpected response. Please try again.",
+    );
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("Omakase received an incomplete response. Please try again.");
+  }
+}
+
 async function runRecommendations(event) {
   event.preventDefault();
   for (const course of COURSE_ORDER) {
@@ -272,7 +288,7 @@ async function runRecommendations(event) {
       body: JSON.stringify(buildPayload()),
       signal: requestController.signal,
     });
-    const data = await response.json();
+    const data = await readApiResponse(response);
     if (!response.ok) throw new Error(data.detail || "Omakase could not finish this menu.");
     displayResults(data);
     byId("api_key").value = "";

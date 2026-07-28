@@ -6,6 +6,7 @@ import os
 from fastapi.testclient import TestClient
 
 from omakase.adapters import myanimelist
+from omakase.engine import RecommendationOutputError
 from omakase.types import Recommendation
 from omakase.web import server
 
@@ -139,6 +140,22 @@ def test_unknown_failure_is_redacted(monkeypatch):
     assert response.status_code == 500
     assert response.json()["detail"] == "Omakase could not finish this menu. Try again shortly."
     assert "request-only-key" not in response.text
+
+
+def test_incomplete_model_json_returns_a_retryable_provider_error(monkeypatch):
+    client = _client(monkeypatch)
+
+    def fail(_cfg):
+        raise RecommendationOutputError("private generated output")
+
+    monkeypatch.setattr(server, "run_pipeline", fail)
+    response = client.post("/api/recommend", json=_valid_payload())
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "The selected model returned an incomplete menu. Try again, or use Fast mode."
+    )
+    assert "private generated output" not in response.text
 
 
 def test_health_reports_exact_source_commit(monkeypatch):

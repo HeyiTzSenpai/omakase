@@ -56,6 +56,17 @@ def test_prompt_caps_recommendation_count_at_candidate_pool():
     assert "recommend 3 anime" in prompt
 
 
+def test_prompt_keeps_each_reasoning_field_concise_for_bounded_json_output():
+    prompt = build_prompt(
+        "I like thoughtful character writing.",
+        [_media("Seen", score=9, mid=1)],
+        [_media("Candidate", mid=2)],
+    )
+
+    assert "one concise sentence" in prompt
+    assert "2-3 sentences" not in prompt
+
+
 def test_prompt_empty_profile_uses_no_profile_branch():
     """When no profile is provided, the prompt should explicitly tell the LLM
     to infer taste from scores alone and widen the search."""

@@ -138,7 +138,7 @@ Every anime this user has scored or interacted with. The scores are their honest
 For each recommendation provide:
 - title (use English if available, else romaji)
 - predicted_score (1-10 — be honest, don't inflate)
-- reasoning ({"2-3 sentences tying it to SPECIFIC anime they've scored AND to their written taste profile" if has_profile else "2-3 sentences tying it to SPECIFIC anime they've scored that share the same elements"})
+- reasoning ({"one concise sentence tying it to a SPECIFIC anime they've scored AND to their written taste profile" if has_profile else "one concise sentence tying it to a SPECIFIC anime they've scored that shares the same elements"})
 - best_match_from_history (one title from their history this most resembles)
 
 # STRICT RULES

@@ -33,9 +33,12 @@ def test_strips_leading_and_trailing_prose():
     assert len(recs) == 2
 
 
-def test_returns_empty_on_invalid_json():
-    recs = _parse_recommendations("not json at all")
+def test_returns_empty_on_invalid_json_without_logging_model_output(capsys):
+    recs = _parse_recommendations("PRIVATE TASTE MARKER: not json at all")
     assert recs == []
+    captured = capsys.readouterr()
+    assert "Failed to parse LLM output" in captured.err
+    assert "PRIVATE TASTE MARKER" not in captured.err
 
 
 def test_handles_missing_fields_gracefully():

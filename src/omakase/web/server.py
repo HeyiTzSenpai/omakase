@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from omakase import __version__
 from omakase.adapters.base import list_sources
 from omakase.adapters.myanimelist import CandidateSourceError, MALExportError
-from omakase.engine import EmptyHistoryError
+from omakase.engine import EmptyHistoryError, RecommendationOutputError
 from omakase.engine import run as run_pipeline
 from omakase.llm import list_backends
 from omakase.types import DEFAULT_URLS, MODEL_PRESETS, OmakaseConfig, resolve_model_preset
@@ -266,6 +266,11 @@ def recommend(req: RecommendRequest):
         )
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=502, detail=_friendly_llm_error(e, req.llm_type, req.model))
+    except RecommendationOutputError:
+        raise HTTPException(
+            status_code=502,
+            detail=("The selected model returned an incomplete menu. Try again, or use Fast mode."),
+        )
     except Exception as e:
         logger.error("Recommendation request failed: %s", type(e).__name__)
         raise HTTPException(

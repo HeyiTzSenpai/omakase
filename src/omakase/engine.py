@@ -20,6 +20,10 @@ class EmptyHistoryError(Exception):
     """
 
 
+class RecommendationOutputError(RuntimeError):
+    """The model response could not be turned into a recommendation menu."""
+
+
 def _parse_recommendations(raw: str) -> list[Recommendation]:
     """Parse LLM JSON output into Recommendation objects. Graceful on failure."""
     cleaned = raw.strip()
@@ -56,7 +60,6 @@ def _parse_recommendations(raw: str) -> list[Recommendation]:
         ]
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         print(f"[!] Failed to parse LLM output: {e}", file=sys.stderr)
-        print(f"Raw output: {raw[:500]}", file=sys.stderr)
         return []
 
 
@@ -204,6 +207,8 @@ def run(cfg: OmakaseConfig) -> list[Recommendation]:
     # 5. Parse
     print("  [5/5] Parsing response...")
     recs = _parse_recommendations(raw)
+    if not recs:
+        raise RecommendationOutputError("The model response was not valid recommendation JSON.")
     _resolve_rec_urls(recs, data.candidates, data.source_name)
     print(f"        Got {len(recs)} recommendations\n")
     return recs
