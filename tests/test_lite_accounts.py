@@ -245,9 +245,7 @@ def test_openwebui_migration_preserves_existing_provider_keys(tmp_path):
         VALUES (1, 'friend@example.com', 'hash', 'Friend')
         """
     )
-    conn.execute(
-        "INSERT INTO account_profiles (user_id, taste_profile) VALUES (1, '')"
-    )
+    conn.execute("INSERT INTO account_profiles (user_id, taste_profile) VALUES (1, '')")
     conn.execute(
         """
         INSERT INTO account_provider_keys

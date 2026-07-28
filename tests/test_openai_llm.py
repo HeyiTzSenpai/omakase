@@ -57,9 +57,5 @@ def test_openwebui_uses_its_instance_chat_completions_endpoint():
         )
         llm.generate("Return JSON.", supports_json=False)
 
-    assert client.post.call_args.args[0] == (
-        "https://models.example.com/team/api/chat/completions"
-    )
-    assert client.post.call_args.kwargs["headers"]["Authorization"] == (
-        "Bearer openwebui-key"
-    )
+    assert client.post.call_args.args[0] == ("https://models.example.com/team/api/chat/completions")
+    assert client.post.call_args.kwargs["headers"]["Authorization"] == ("Bearer openwebui-key")

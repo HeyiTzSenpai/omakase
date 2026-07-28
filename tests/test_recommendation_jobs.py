@@ -313,11 +313,14 @@ def test_account_job_remembers_openwebui_instance_and_model(monkeypatch, tmp_pat
     }
     conn = db.connect(tmp_path)
     try:
-        assert credentials.load_provider_key(
-            conn,
-            user_id=user_id,
-            provider="openwebui",
-        ) == "request-only-secret"
+        assert (
+            credentials.load_provider_key(
+                conn,
+                user_id=user_id,
+                provider="openwebui",
+            )
+            == "request-only-secret"
+        )
         assert db.get_remembered_setup(conn, user_id) == {
             "provider": "openwebui",
             "mode": "fast",
