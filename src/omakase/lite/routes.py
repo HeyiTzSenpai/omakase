@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import threading
 import time
@@ -11,8 +10,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -20,11 +18,25 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from omakase.lite import auth, credentials, db
 from omakase.lite.models import AccountUser
 
-logger = logging.getLogger(__name__)
-
 page_router = APIRouter(prefix="/account")
 api_router = APIRouter(prefix="/api/account")
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+
+
+def _account_asset_version() -> str:
+    static_dir = Path(__file__).resolve().parents[1] / "web" / "static"
+    assets = (
+        static_dir / "account.css",
+        static_dir / "account.js",
+        static_dir / "account_state.js",
+    )
+    try:
+        return str(max(int(asset.stat().st_mtime) for asset in assets))
+    except OSError:
+        return "1"
+
+
+templates.env.globals["account_asset_version"] = _account_asset_version()
 
 _COOKIE_NAME = "omakase_account"
 _rate_lock = threading.Lock()
@@ -200,108 +212,6 @@ def _csrf_for_session(request: Request, conn) -> str:
     return row["csrf_token"] if row else ""
 
 
-def _send_access_notification(*, request_id: int, display_name: str, admin_url: str) -> None:
-    """Notify the owner without sending requester contact details to Discord."""
-    webhook = os.getenv("OMAKASE_ACCESS_DISCORD_WEBHOOK", "").strip()
-    webhook_file = os.getenv("OMAKASE_ACCESS_DISCORD_WEBHOOK_FILE", "").strip()
-    if not webhook and webhook_file:
-        try:
-            webhook = Path(webhook_file).read_text(encoding="utf-8").strip()
-        except OSError:
-            logger.warning("Omakase Lite access notification secret could not be read.")
-    if not webhook:
-        logger.info("Access request %s is waiting in the owner inbox.", request_id)
-        return
-    safe_name = " ".join(display_name.split())[:80] or "Someone"
-    payload = {
-        "content": (
-            "New Omakase Lite access request\n"
-            f"Request #{request_id} · {safe_name}\n"
-            f"Review and approve: {admin_url}"
-        ),
-        "allowed_mentions": {"parse": []},
-    }
-    try:
-        response = httpx.post(webhook, json=payload, timeout=8.0)
-        response.raise_for_status()
-    except Exception as exc:
-        logger.warning(
-            "Omakase Lite access notification failed (%s). Request remains in the inbox.",
-            type(exc).__name__,
-        )
-
-
-@page_router.get("/request", response_class=HTMLResponse)
-async def request_access_page(request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="request_access.html",
-        context={"user": optional_user(request)},
-    )
-
-
-@page_router.post("/request", response_class=HTMLResponse, status_code=202)
-async def request_access(request: Request, background_tasks: BackgroundTasks):
-    _validate_origin(request)
-    _check_rate_limit(request, action="access-request", limit=5, window_seconds=60 * 60)
-    form = await request.form()
-    if str(form.get("website", "")).strip():
-        return templates.TemplateResponse(
-            request=request,
-            name="request_access.html",
-            context={"submitted": True},
-            status_code=202,
-        )
-
-    display_name = str(form.get("display_name", "")).strip()
-    if not display_name:
-        return templates.TemplateResponse(
-            request=request,
-            name="request_access.html",
-            context={"error": "Tell us what name to use."},
-            status_code=400,
-        )
-
-    conn = db.connect()
-    try:
-        email = db.normalize_email(str(form.get("email", "")))
-        existing = conn.execute(
-            "SELECT id, status FROM account_access_requests WHERE email = ?",
-            (email,),
-        ).fetchone()
-        request_id = db.create_access_request(
-            conn,
-            email=email,
-            display_name=display_name,
-            contact=str(form.get("contact", "")),
-            note=str(form.get("note", "")),
-        )
-    except ValueError as exc:
-        return templates.TemplateResponse(
-            request=request,
-            name="request_access.html",
-            context={"error": str(exc)},
-            status_code=400,
-        )
-    finally:
-        conn.close()
-
-    if existing is None or existing["status"] == "declined":
-        admin_url = f"{_public_url()}/account/admin/requests?focus={request_id}"
-        background_tasks.add_task(
-            _send_access_notification,
-            request_id=request_id,
-            display_name=display_name,
-            admin_url=admin_url,
-        )
-    return templates.TemplateResponse(
-        request=request,
-        name="request_access.html",
-        context={"submitted": True},
-        status_code=202,
-    )
-
-
 @page_router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     if optional_user(request):
@@ -431,6 +341,20 @@ async def decline_request(request_id: int, request: Request):
     return JSONResponse({"ok": True})
 
 
+@page_router.post("/admin/invites")
+async def create_owner_invite(request: Request):
+    form = await request.form()
+    conn = db.connect()
+    try:
+        user = _require_admin(request, conn)
+        _validate_csrf(request, conn, str(form.get("csrf_token", "")))
+        _check_rate_limit(request, action="owner-invite", limit=20, window_seconds=60 * 60)
+        token = db.create_direct_invite(conn, admin_id=user.id)
+    finally:
+        conn.close()
+    return {"invite_url": f"{_public_url()}/account/invite#{token}"}
+
+
 @page_router.get("/invite", response_class=HTMLResponse)
 async def invite_page(request: Request):
     return templates.TemplateResponse(
@@ -446,6 +370,7 @@ async def claim_invite(request: Request):
     _check_rate_limit(request, action="claim-invite", limit=10, window_seconds=15 * 60)
     form = await request.form()
     token = str(form.get("token", ""))
+    email = str(form.get("email", "")).strip()
     password = str(form.get("password", ""))
     display_name = str(form.get("display_name", "")).strip()
     error = ""
@@ -457,7 +382,12 @@ async def claim_invite(request: Request):
         return templates.TemplateResponse(
             request=request,
             name="invite.html",
-            context={"error": error, "token": token, "display_name": display_name},
+            context={
+                "error": error,
+                "token": token,
+                "email": email,
+                "display_name": display_name,
+            },
             status_code=400,
         )
 
@@ -467,6 +397,7 @@ async def claim_invite(request: Request):
             user_id = db.claim_invite(
                 conn,
                 token=token,
+                email=email,
                 password=password,
                 display_name=display_name,
             )
@@ -474,7 +405,12 @@ async def claim_invite(request: Request):
             return templates.TemplateResponse(
                 request=request,
                 name="invite.html",
-                context={"error": str(exc), "token": token, "display_name": display_name},
+                context={
+                    "error": str(exc),
+                    "token": token,
+                    "email": email,
+                    "display_name": display_name,
+                },
                 status_code=400,
             )
         session = auth.create_session(conn, user_id)

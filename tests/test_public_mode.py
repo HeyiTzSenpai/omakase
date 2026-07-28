@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -23,7 +24,8 @@ def test_public_mode_promotes_byok_and_keeps_plus_private(monkeypatch):
     assert response.status_code == 200
     assert "Cook my recommendation menu" in response.text
     assert "never written to disk, logs, cookies, or a database" in response.text
-    assert "Request a Lite account" in response.text
+    assert "Lite accounts are invitation-only" in response.text
+    assert "/account/request" not in response.text
     assert "Private Plus automation is not connected to this demo." in response.text
     assert "waitlist" not in response.text.lower()
     assert "Ollama" not in response.text
@@ -45,3 +47,11 @@ def test_public_mode_does_not_mount_plus_routes(monkeypatch):
     for path in ("/plus", "/plus/login", "/plus/dashboard"):
         response = client.get(path, follow_redirects=False)
         assert response.status_code == 404
+
+
+def test_production_overlay_mounts_only_the_lite_keyring_secret():
+    overlay = Path("compose.production.yaml").read_text(encoding="utf-8")
+
+    assert "lite_keyring" in overlay
+    assert "access_discord" not in overlay
+    assert "webhook" not in overlay.lower()

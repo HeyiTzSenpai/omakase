@@ -1,17 +1,12 @@
 # Production-only secret overlay. The Lite keyring is required for encrypted
-# member provider keys. Discord remains optional at the application layer, but
-# this deployment overlay expects both protected local secret files.
+# member provider keys.
 services:
   omakase:
     environment:
-      OMAKASE_ACCESS_DISCORD_WEBHOOK_FILE: /run/secrets/access_discord_webhook
       OMAKASE_LITE_KEYRING_FILE: /run/secrets/lite_keyring
     secrets:
-      - access_discord_webhook
       - lite_keyring
 
 secrets:
-  access_discord_webhook:
-    file: ./secrets/access-discord-webhook
   lite_keyring:
     file: ./secrets/lite-keyring

@@ -1,5 +1,10 @@
 # Omakase Lite accounts and deep recommendation jobs
 
+> Access-entry update: the later owner-invitation-only release removes the
+> public request form and Discord request alert while preserving existing
+> approved accounts and historical request rows. See
+> `2026-07-28-omakase-owner-invitation-only-access.md`.
+
 ## Product boundary
 
 Omakase Lite gives approved people a small, persistent recommendation experience on the public BYOK counter. It deliberately excludes every private Plus media-management capability: no Plex access, downloads, acquisition, library automation, or shared Plus database.

@@ -36,7 +36,7 @@ The hosted counter accepts a public AniList username or a MyAnimeList XML export
 
 ### Omakase Lite accounts
 
-People can request recommendation-only access from the public counter. The owner reviews requests in a private inbox and shares a one-time, seven-day invitation. A Lite account adds:
+Lite accounts are invitation-only. The owner creates a one-time, seven-day link from the private Invitations page and shares it directly with a friend; the recipient supplies their own name, email, and password while claiming it. There is no public access-request form or queue. Historical request numbers are stable and separate from internal database IDs. A Lite account adds:
 
 - saved recommendation history and a local My List;
 - encrypted, reusable provider keys that are never shown back to the browser;
@@ -45,7 +45,7 @@ People can request recommendation-only access from the public counter. The owner
 - one-click regeneration from the current result page;
 - no Plex, download, acquisition, or private Plus access.
 
-Lite saves completed recommendations, the account profile, setup choices, and feedback in its own SQLite database. Provider keys are encrypted at rest with a protected server-side Fernet keyring, decrypted only for the selected provider request, and cleared from job memory when the request finishes. Uploaded MAL files remain request-local. Passwords use Argon2id, sessions and invitations are stored only as hashes, mutating account requests require CSRF validation, and account/API responses are not browser-cached.
+Lite saves completed recommendations, the account profile, setup choices, and feedback in its own SQLite database. Provider keys are encrypted at rest with a protected server-side Fernet keyring, decrypted only for the selected provider request, and cleared from job memory when the request finishes. Uploaded MAL files remain request-local. Passwords use Argon2id, sessions and invitations are stored only as hashes, mutating account requests require authentication, owner authorization where applicable, same-origin and CSRF validation, and account/API responses are not browser-cached.
 
 ## Run it yourself
 
@@ -125,20 +125,19 @@ Run `omakase recommend --help` for all options. See [CONTRIBUTING.md](CONTRIBUTI
 
 ## Hosted deployment
 
-The base Compose stack persists Lite state in the `omakase_lite_data` volume and works without a notification service. Production uses a protected Fernet keyring to encrypt member-saved provider keys and can add redacted Discord access-request alerts with the secret overlay:
+The base Compose stack persists Lite state in the `omakase_lite_data` volume. Production uses a protected Fernet keyring to encrypt member-saved provider keys:
 
 ```bash
 mkdir -p secrets
-# Write the webhook to secrets/access-discord-webhook without committing it.
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" \
   > secrets/lite-keyring
 chmod 700 secrets
-chgrp 1000 secrets/access-discord-webhook secrets/lite-keyring
-chmod 640 secrets/access-discord-webhook secrets/lite-keyring
+chgrp 1000 secrets/lite-keyring
+chmod 640 secrets/lite-keyring
 docker compose -f compose.yaml -f compose.production.yaml up -d --build
 ```
 
-The container runs as UID/GID 1000, so both secret files must be group-readable by GID 1000 on the host. Keep the Lite keyring stable: replacing it makes existing saved provider keys unreadable. The Discord message contains only the request number, display name, and owner-inbox URL. Email, contact details, and notes stay in the Lite database. One-time invitation secrets travel in the URL fragment, which browsers do not send in HTTP requests, then move into the claim form body. Bootstrap the owner by piping an existing Argon2id hash over standard input; the command never prints the hash:
+The container runs as UID/GID 1000, so the keyring must be group-readable by GID 1000 on the host. Keep the Lite keyring stable: replacing it makes existing saved provider keys unreadable. Only an authenticated owner with valid same-origin and CSRF checks can create an invitation. One-time invitation secrets travel in the URL fragment, which browsers do not send in HTTP requests, then move into the claim form body. Bootstrap the owner by piping an existing Argon2id hash over standard input; the command never prints the hash:
 
 ```bash
 docker compose exec -T omakase \

@@ -81,6 +81,7 @@ def create_user(
     password_hash: str,
     display_name: str,
     role: str = "member",
+    commit: bool = True,
 ) -> int:
     cursor = conn.execute(
         """
@@ -94,7 +95,8 @@ def create_user(
         "INSERT INTO account_profiles (user_id, taste_profile) VALUES (?, '')",
         (user_id,),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return user_id
 
 
@@ -184,28 +186,50 @@ def create_access_request(
             )
             conn.commit()
         return int(existing["id"])
-    cursor = conn.execute(
-        """
-        INSERT INTO account_access_requests
-            (email, display_name, contact, note)
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            normalized,
-            display_name.strip()[:80],
-            contact.strip()[:120],
-            note.strip()[:1000],
-        ),
-    )
-    conn.commit()
-    return int(cursor.lastrowid)
+    try:
+        conn.execute(
+            """
+            UPDATE account_request_number_sequence
+               SET next_number = next_number + 1
+             WHERE singleton = 1
+            """
+        )
+        number_row = conn.execute(
+            """
+            SELECT next_number - 1 AS public_number
+              FROM account_request_number_sequence
+             WHERE singleton = 1
+            """
+        ).fetchone()
+        if number_row is None:
+            raise RuntimeError("The access-request number sequence is unavailable.")
+        cursor = conn.execute(
+            """
+            INSERT INTO account_access_requests
+                (email, display_name, contact, note, public_number)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                normalized,
+                display_name.strip()[:80],
+                contact.strip()[:120],
+                note.strip()[:1000],
+                number_row["public_number"],
+            ),
+        )
+        conn.commit()
+        return int(cursor.lastrowid)
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def list_access_requests(conn: sqlite3.Connection, *, status: str | None = None) -> list[dict]:
     if status:
         rows = conn.execute(
             """
-            SELECT id, email, display_name, contact, note, status, created_at, decided_at
+            SELECT id, public_number, email, display_name, contact, note, status,
+                   created_at, decided_at
               FROM account_access_requests
              WHERE status = ?
              ORDER BY id DESC
@@ -215,7 +239,8 @@ def list_access_requests(conn: sqlite3.Connection, *, status: str | None = None)
     else:
         rows = conn.execute(
             """
-            SELECT id, email, display_name, contact, note, status, created_at, decided_at
+            SELECT id, public_number, email, display_name, contact, note, status,
+                   created_at, decided_at
               FROM account_access_requests
              ORDER BY id DESC
             """
@@ -248,8 +273,8 @@ def approve_access_request(
     conn.execute(
         """
         INSERT INTO account_invites
-            (access_request_id, email, token_hash, expires_at, created_by)
-        VALUES (?, ?, ?, ?, ?)
+            (access_request_id, email, kind, token_hash, expires_at, created_by)
+        VALUES (?, ?, 'request', ?, ?, ?)
         """,
         (
             request_id,
@@ -271,6 +296,32 @@ def approve_access_request(
     return raw_token
 
 
+def create_direct_invite(
+    conn: sqlite3.Connection,
+    *,
+    admin_id: int,
+    now: datetime | None = None,
+) -> str:
+    current = now or datetime.now(timezone.utc)
+    raw_token = secrets.token_urlsafe(32)
+    from omakase.lite.auth import hash_token
+
+    conn.execute(
+        """
+        INSERT INTO account_invites
+            (access_request_id, email, kind, token_hash, expires_at, created_by)
+        VALUES (NULL, NULL, 'direct', ?, ?, ?)
+        """,
+        (
+            hash_token(raw_token),
+            (current + timedelta(days=7)).isoformat(),
+            admin_id,
+        ),
+    )
+    conn.commit()
+    return raw_token
+
+
 def decline_access_request(conn: sqlite3.Connection, *, request_id: int, admin_id: int) -> None:
     conn.execute(
         """
@@ -287,46 +338,64 @@ def claim_invite(
     conn: sqlite3.Connection,
     *,
     token: str,
+    email: str = "",
     password: str,
     display_name: str,
     now: datetime | None = None,
 ) -> int:
     from omakase.lite.auth import hash_password, hash_token
 
-    row = conn.execute(
-        """
-        SELECT i.id, i.email, i.expires_at, i.claimed_at, i.access_request_id
-          FROM account_invites i
-         WHERE i.token_hash = ?
-        """,
-        (hash_token(token),),
-    ).fetchone()
-    if row is None:
-        raise InviteError("This invite is invalid.")
-    current = now or datetime.now(timezone.utc)
-    if row["claimed_at"]:
-        raise InviteError("This invite has already been used.")
-    if datetime.fromisoformat(row["expires_at"]) <= current:
-        raise InviteError("This invite has expired.")
-    if conn.execute("SELECT id FROM account_users WHERE email = ?", (row["email"],)).fetchone():
-        raise InviteError("An account already exists for this invite.")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = conn.execute(
+            """
+            SELECT i.id, i.email, i.kind, i.expires_at, i.claimed_at,
+                   i.access_request_id
+              FROM account_invites i
+             WHERE i.token_hash = ?
+            """,
+            (hash_token(token),),
+        ).fetchone()
+        if row is None:
+            raise InviteError("This invite is invalid.")
+        current = now or datetime.now(timezone.utc)
+        if row["claimed_at"]:
+            raise InviteError("This invite has already been used.")
+        if datetime.fromisoformat(row["expires_at"]) <= current:
+            raise InviteError("This invite has expired.")
+        if row["kind"] == "direct":
+            claimed_email = normalize_email(email)
+        else:
+            claimed_email = row["email"]
+            if email and normalize_email(email) != claimed_email:
+                raise InviteError("Use the same email address that requested access.")
+        if conn.execute(
+            "SELECT id FROM account_users WHERE email = ?",
+            (claimed_email,),
+        ).fetchone():
+            raise InviteError("An account already exists for this invite.")
 
-    user_id = create_user(
-        conn,
-        email=row["email"],
-        password_hash=hash_password(password),
-        display_name=display_name,
-    )
-    conn.execute(
-        "UPDATE account_invites SET claimed_at = ? WHERE id = ?",
-        (current.isoformat(), row["id"]),
-    )
-    conn.execute(
-        "UPDATE account_access_requests SET status = 'claimed' WHERE id = ?",
-        (row["access_request_id"],),
-    )
-    conn.commit()
-    return user_id
+        user_id = create_user(
+            conn,
+            email=claimed_email,
+            password_hash=hash_password(password),
+            display_name=display_name,
+            commit=False,
+        )
+        conn.execute(
+            "UPDATE account_invites SET claimed_at = ? WHERE id = ?",
+            (current.isoformat(), row["id"]),
+        )
+        if row["access_request_id"] is not None:
+            conn.execute(
+                "UPDATE account_access_requests SET status = 'claimed' WHERE id = ?",
+                (row["access_request_id"],),
+            )
+        conn.commit()
+        return user_id
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def update_profile(conn: sqlite3.Connection, user_id: int, taste_profile: str) -> None:

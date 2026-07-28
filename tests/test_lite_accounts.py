@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import stat
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -13,6 +16,70 @@ from omakase.types import Recommendation
 
 def _connection(tmp_path):
     return db.connect(tmp_path)
+
+
+def test_owner_invite_migration_backfills_retained_request_as_public_number_one(tmp_path):
+    database_path = tmp_path / "omakase-lite.db"
+    conn = sqlite3.connect(database_path)
+    conn.execute(
+        """
+        CREATE TABLE account_migrations (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    for migration_name in ("001-lite-accounts.sql", "002-account-experience.sql"):
+        conn.executescript((db._MIGRATIONS / migration_name).read_text(encoding="utf-8"))
+        conn.execute("INSERT INTO account_migrations (name) VALUES (?)", (migration_name,))
+    for request_id in range(1, 5):
+        conn.execute(
+            """
+            INSERT INTO account_access_requests
+                (id, email, display_name, contact, note)
+            VALUES (?, ?, ?, '', '')
+            """,
+            (request_id, f"person-{request_id}@example.com", f"Person {request_id}"),
+        )
+    conn.execute("DELETE FROM account_access_requests WHERE id < 4")
+    conn.execute(
+        """
+        INSERT INTO account_users
+            (id, email, password_hash, display_name, role)
+        VALUES (1, 'owner@example.com', 'hash', 'Owner', 'admin')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO account_invites
+            (id, access_request_id, email, token_hash, expires_at, claimed_at,
+             created_by)
+        VALUES (1, 4, 'person-4@example.com', 'stored-hash',
+                '2099-01-01T00:00:00+00:00', '2026-07-28T00:00:00+00:00', 1)
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    migrated = db.connect(tmp_path)
+    retained = db.list_access_requests(migrated)
+
+    assert [(row["id"], row["public_number"]) for row in retained] == [(4, 1)]
+    invite_columns = {
+        row["name"]: row for row in migrated.execute("PRAGMA table_info(account_invites)")
+    }
+    assert invite_columns["access_request_id"]["notnull"] == 0
+    assert invite_columns["email"]["notnull"] == 0
+    assert "kind" in invite_columns
+    preserved_invite = migrated.execute(
+        "SELECT access_request_id, email, kind, token_hash FROM account_invites"
+    ).fetchone()
+    assert dict(preserved_invite) == {
+        "access_request_id": 4,
+        "email": "person-4@example.com",
+        "kind": "request",
+        "token_hash": "stored-hash",
+    }
 
 
 def test_account_experience_migration_adds_credentials_scores_and_setup(tmp_path):
@@ -267,6 +334,120 @@ def test_manual_access_request_invite_claim_and_session_are_hash_backed(tmp_path
     assert session.token not in stored_session["token_hash"]
     assert auth.validate_session(conn, session.token).id == member_id
     assert auth.validate_csrf(conn, session.token, session.csrf_token)
+
+
+def test_owner_can_issue_direct_invite_and_recipient_supplies_account_details(tmp_path):
+    conn = _connection(tmp_path)
+    admin_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+
+    invite = db.create_direct_invite(conn, admin_id=admin_id)
+    stored = conn.execute(
+        """
+        SELECT access_request_id, email, kind, token_hash, expires_at, claimed_at
+          FROM account_invites
+         WHERE kind = 'direct'
+        """
+    ).fetchone()
+
+    assert stored is not None
+    assert stored["access_request_id"] is None
+    assert stored["email"] is None
+    assert stored["kind"] == "direct"
+    assert invite not in stored["token_hash"]
+    assert datetime.fromisoformat(stored["expires_at"]) > datetime.now(timezone.utc)
+
+    member_id = db.claim_invite(
+        conn,
+        token=invite,
+        email="NewFriend@Example.com",
+        password="a-strong-friend-password",
+        display_name="New Friend",
+    )
+    member = db.get_user_by_id(conn, member_id)
+    assert member is not None
+    assert member.email == "newfriend@example.com"
+    assert member.display_name == "New Friend"
+
+    with pytest.raises(db.InviteError, match="already been used"):
+        db.claim_invite(
+            conn,
+            token=invite,
+            email="another@example.com",
+            password="another-strong-password",
+            display_name="Another",
+        )
+
+
+def test_direct_invite_allows_only_one_concurrent_claim(tmp_path):
+    setup = _connection(tmp_path)
+    admin_id = db.bootstrap_admin(
+        setup,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+    invite = db.create_direct_invite(setup, admin_id=admin_id)
+    setup.close()
+    gate = threading.Barrier(2)
+
+    def claim(email: str):
+        conn = _connection(tmp_path)
+        gate.wait()
+        try:
+            return db.claim_invite(
+                conn,
+                token=invite,
+                email=email,
+                password="a-strong-concurrent-password",
+                display_name="Concurrent Friend",
+            )
+        except db.InviteError as exc:
+            return str(exc)
+        finally:
+            conn.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(claim, ("first@example.com", "second@example.com")))
+
+    assert len([result for result in results if isinstance(result, int)]) == 1
+    assert len([result for result in results if "already been used" in str(result)]) == 1
+    check = _connection(tmp_path)
+    assert (
+        check.execute("SELECT COUNT(*) FROM account_users WHERE role = 'member'").fetchone()[0] == 1
+    )
+
+
+def test_public_request_numbers_do_not_reuse_deleted_numbers(tmp_path):
+    conn = _connection(tmp_path)
+    first_id = db.create_access_request(
+        conn,
+        email="first@example.com",
+        display_name="First",
+        contact="",
+        note="",
+    )
+    first = db.list_access_requests(conn)[0]
+    assert first["id"] == first_id
+    assert first["public_number"] == 1
+
+    conn.execute("DELETE FROM account_access_requests WHERE id = ?", (first_id,))
+    conn.commit()
+    second_id = db.create_access_request(
+        conn,
+        email="second@example.com",
+        display_name="Second",
+        contact="",
+        note="",
+    )
+    second = db.list_access_requests(conn)[0]
+
+    assert second["id"] == second_id
+    assert second["public_number"] == 2
 
 
 def test_expired_invite_cannot_be_claimed(tmp_path):

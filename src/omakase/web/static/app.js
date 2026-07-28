@@ -542,7 +542,6 @@ async function loadAccountSession(applySetup = true) {
   }
   accountSessionLoaded = true;
   const signedIn = Boolean(accountSession.authenticated);
-  byId("account-request-link").hidden = signedIn;
   byId("account-login-link").hidden = signedIn;
   byId("account-home-link").hidden = !signedIn;
   if (signedIn) {

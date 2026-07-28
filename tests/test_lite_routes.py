@@ -41,22 +41,10 @@ def _login(client: TestClient, email: str, password: str):
     )
 
 
-def test_access_request_is_generic_and_discord_notification_is_redacted(
-    monkeypatch,
-    tmp_path,
-):
+def test_public_access_request_route_is_not_available(monkeypatch, tmp_path):
     client = _client(monkeypatch, tmp_path)
-    captured = {}
-
-    def capture_notification(*, request_id, display_name, admin_url):
-        captured.update(
-            request_id=request_id,
-            display_name=display_name,
-            admin_url=admin_url,
-        )
-
-    monkeypatch.setattr(routes, "_send_access_notification", capture_notification)
-    response = client.post(
+    get_response = client.get("/account/request")
+    post_response = client.post(
         "/account/request",
         data={
             "email": "friend@example.com",
@@ -67,31 +55,24 @@ def test_access_request_is_generic_and_discord_notification_is_redacted(
         },
     )
 
-    assert response.status_code == 202
-    assert "If this is a new request" in response.text
-    assert captured == {
-        "request_id": 1,
-        "display_name": "Friend",
-        "admin_url": "https://omakase.example/account/admin/requests?focus=1",
-    }
-    assert "friend@example.com" not in repr(captured)
-    assert "Private request note" not in repr(captured)
+    assert get_response.status_code == 404
+    assert post_response.status_code == 404
+    conn = db.connect(tmp_path)
+    assert db.list_access_requests(conn) == []
 
 
 def test_admin_can_approve_and_friend_can_claim_invite(monkeypatch, tmp_path):
     client = _client(monkeypatch, tmp_path)
     _bootstrap_admin(tmp_path)
-    monkeypatch.setattr(routes, "_send_access_notification", lambda **_kwargs: None)
-    client.post(
-        "/account/request",
-        data={
-            "email": "friend@example.com",
-            "display_name": "Friend",
-            "contact": "",
-            "note": "",
-            "website": "",
-        },
+    conn = db.connect(tmp_path)
+    db.create_access_request(
+        conn,
+        email="friend@example.com",
+        display_name="Friend",
+        contact="",
+        note="",
     )
+    conn.close()
 
     login = _login(client, "owner@example.com", "owner-password")
     assert login.status_code == 302
@@ -122,6 +103,7 @@ def test_admin_can_approve_and_friend_can_claim_invite(monkeypatch, tmp_path):
         "/account/invite/claim",
         data={
             "token": token,
+            "email": "friend@example.com",
             "display_name": "Friend",
             "password": "a-strong-friend-password",
             "confirm_password": "a-different-password",
@@ -130,10 +112,23 @@ def test_admin_can_approve_and_friend_can_claim_invite(monkeypatch, tmp_path):
     assert mismatch.status_code == 400
     assert f'value="{token}"' in mismatch.text
     assert 'value="Friend"' in mismatch.text
+    wrong_email = client.post(
+        "/account/invite/claim",
+        data={
+            "token": token,
+            "email": "someone-else@example.com",
+            "display_name": "Friend",
+            "password": "a-strong-friend-password",
+            "confirm_password": "a-strong-friend-password",
+        },
+    )
+    assert wrong_email.status_code == 400
+    assert "same email address" in wrong_email.text
     claim = client.post(
         "/account/invite/claim",
         data={
             "token": token,
+            "email": "friend@example.com",
             "display_name": "Friend",
             "password": "a-strong-friend-password",
             "confirm_password": "a-strong-friend-password",
@@ -145,6 +140,93 @@ def test_admin_can_approve_and_friend_can_claim_invite(monkeypatch, tmp_path):
     member_session = client.get("/api/account/session").json()
     assert member_session["authenticated"] is True
     assert member_session["role"] == "member"
+
+
+def test_admin_can_issue_direct_invite_and_friend_fills_claim_form(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    _bootstrap_admin(tmp_path)
+    login = _login(client, "owner@example.com", "owner-password")
+    assert login.status_code == 302
+    session = client.get("/api/account/session").json()
+
+    missing_csrf = client.post("/account/admin/invites")
+    assert missing_csrf.status_code == 403
+    cross_origin = client.post(
+        "/account/admin/invites",
+        data={"csrf_token": session["csrf_token"]},
+        headers={"Origin": "https://evil.example"},
+    )
+    assert cross_origin.status_code == 403
+    issued = client.post(
+        "/account/admin/invites",
+        data={"csrf_token": session["csrf_token"]},
+    )
+    assert issued.status_code == 200
+    invite_url = issued.json()["invite_url"]
+    assert invite_url.startswith("https://omakase.example/account/invite#")
+
+    client.post(
+        "/account/logout",
+        data={"csrf_token": session["csrf_token"]},
+        follow_redirects=False,
+    )
+    token = urlsplit(invite_url).fragment
+    missing_email = client.post(
+        "/account/invite/claim",
+        data={
+            "token": token,
+            "email": "",
+            "display_name": "Invited Friend",
+            "password": "a-strong-invited-password",
+            "confirm_password": "a-strong-invited-password",
+        },
+    )
+    assert missing_email.status_code == 400
+    assert "valid email" in missing_email.text
+
+    claim = client.post(
+        "/account/invite/claim",
+        data={
+            "token": token,
+            "email": "invited@example.com",
+            "display_name": "Invited Friend",
+            "password": "a-strong-invited-password",
+            "confirm_password": "a-strong-invited-password",
+        },
+        follow_redirects=False,
+    )
+    assert claim.status_code == 302
+    assert claim.headers["location"] == "/account"
+    member_session = client.get("/api/account/session").json()
+    assert member_session["authenticated"] is True
+    assert member_session["display_name"] == "Invited Friend"
+
+
+def test_inbox_shows_public_request_number_not_internal_row_id(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    db.create_access_request(
+        conn,
+        email="friend@example.com",
+        display_name="Friend",
+        contact="",
+        note="",
+    )
+    conn.execute("UPDATE account_access_requests SET id = 4 WHERE id = 1")
+    conn.commit()
+    conn.close()
+
+    _login(client, "owner@example.com", "owner-password")
+    inbox = client.get("/account/admin/requests?focus=1")
+
+    assert inbox.status_code == 200
+    assert "Invite someone directly" in inbox.text
+    assert "/static/account.css?v=" in inbox.text
+    assert "/static/account.js?v=" in inbox.text
+    assert 'class="request-row is-focus"' in inbox.text
+    assert '<div class="request-id">#1</div>' in inbox.text
+    assert '<div class="request-id">#4</div>' not in inbox.text
 
 
 def test_guest_admin_inbox_redirects_to_login(monkeypatch, tmp_path):
@@ -187,6 +269,13 @@ def test_member_cannot_open_admin_inbox_or_change_another_users_feedback(
     session = client.get("/api/account/session").json()
     assert session["user_id"] == member_id
     assert client.get("/account/admin/requests").status_code == 403
+    assert (
+        client.post(
+            "/account/admin/invites",
+            data={"csrf_token": session["csrf_token"]},
+        ).status_code
+        == 403
+    )
 
     response = client.post(
         "/api/account/recommendations/999/feedback",

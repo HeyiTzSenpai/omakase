@@ -163,6 +163,30 @@ async function decideRequest(button, action, requestId) {
   }
 }
 
+async function createOwnerInvite(button) {
+  const target = document.querySelector("#owner-invite-result");
+  button.disabled = true;
+  const body = new FormData();
+  body.set("csrf_token", csrfToken);
+  try {
+    const response = await fetch("/account/admin/invites", {
+      method: "POST",
+      body,
+      credentials: "same-origin",
+    });
+    const result = await readJson(response);
+    if (!response.ok || !result.invite_url) {
+      throw new Error(result.detail || "Could not create this invitation.");
+    }
+    showInvite(target, result.invite_url);
+    button.textContent = "Create another invitation";
+    button.disabled = false;
+  } catch (error) {
+    target.textContent = error.message || "Could not create this invitation.";
+    button.disabled = false;
+  }
+}
+
 function prepareInviteForm() {
   const form = document.querySelector("#invite-form");
   const tokenField = document.querySelector("#invite-token");
@@ -198,6 +222,12 @@ document.addEventListener("click", async (event) => {
   const forgetKey = event.target.closest("[data-forget-provider]");
   if (forgetKey) {
     await forgetProviderKey(forgetKey);
+    return;
+  }
+
+  const createInvite = event.target.closest("#create-owner-invite");
+  if (createInvite) {
+    await createOwnerInvite(createInvite);
     return;
   }
 
