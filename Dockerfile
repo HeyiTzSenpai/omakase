@@ -1,9 +1,7 @@
 # Multi-stage Dockerfile for self-hosting Omakase as a web service.
 # Build:  docker build -t omakase:latest .
-# Run:    docker run -d --name omakase -p 8765:8765 \
-#           -e OMAKASE_API_KEY=... \
-#           -e MAL_CLIENT_ID=...    # only if using MyAnimeList as a source
-#           omakase:latest
+# Run the base guest-only stack with Compose. Add compose.production.yaml and
+# its protected Lite keyring for encrypted member-saved provider keys.
 
 FROM python:3.12-slim AS builder
 WORKDIR /build
