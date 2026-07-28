@@ -41,7 +41,11 @@ def test_cross_origin_access_request_is_rejected(monkeypatch, tmp_path):
 
 
 def test_invite_secret_is_never_part_of_a_server_route():
-    route_paths = {route.path for route in server.app.routes}
+    route_paths = {
+        path
+        for route in server.app.routes
+        if (path := getattr(route, "path", None)) is not None
+    }
 
     assert "/account/invite" in route_paths
     assert "/account/invite/claim" in route_paths
