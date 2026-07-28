@@ -30,7 +30,16 @@ def _data_dir(data_dir: str | os.PathLike[str] | None = None) -> Path:
 def connect(data_dir: str | os.PathLike[str] | None = None) -> sqlite3.Connection:
     directory = _data_dir(data_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(directory / "omakase-lite.db", check_same_thread=False)
+    try:
+        directory.chmod(0o700)
+    except OSError:
+        pass
+    database_path = directory / "omakase-lite.db"
+    conn = sqlite3.connect(database_path, check_same_thread=False)
+    try:
+        database_path.chmod(0o600)
+    except OSError:
+        pass
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+import stat
 from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from omakase.lite import auth, db
 from omakase.types import Recommendation
@@ -8,6 +12,15 @@ from omakase.types import Recommendation
 
 def _connection(tmp_path):
     return db.connect(tmp_path)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_lite_database_uses_private_permissions(tmp_path):
+    conn = _connection(tmp_path)
+    conn.close()
+
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+    assert stat.S_IMODE((tmp_path / "omakase-lite.db").stat().st_mode) == 0o600
 
 
 def test_manual_access_request_invite_claim_and_session_are_hash_backed(tmp_path):
