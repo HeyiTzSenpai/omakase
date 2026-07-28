@@ -312,7 +312,12 @@ class MALAdapter(SourceAdapter):
         items: list[MediaItem] = []
         page = 1
         while len(items) < pool_size:
-            data = _jikan_fetch(f"/top/anime?page={page}&limit=25")
+            try:
+                data = _jikan_fetch(f"/top/anime?page={page}&limit=25")
+            except CandidateSourceError:
+                if not items:
+                    raise
+                break
             media_list = data.get("data", [])
             if not media_list:
                 break

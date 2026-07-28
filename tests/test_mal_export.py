@@ -207,3 +207,38 @@ def test_jikan_fetch_redacts_a_non_retryable_upstream_response(monkeypatch):
 
     assert calls == 1
     assert "implementation detail" not in str(exc.value)
+
+
+def test_jikan_candidate_pool_keeps_healthy_pages_when_a_later_page_fails(monkeypatch):
+    adapter = MALAdapter()
+    pages = {
+        1: {"data": [{"mal_id": 1, "title": "One"}]},
+        2: {"data": [{"mal_id": 2, "title": "Two"}]},
+    }
+
+    def fetch_page(endpoint):
+        page = int(endpoint.split("page=", 1)[1].split("&", 1)[0])
+        if page == 3:
+            raise myanimelist.CandidateSourceError("catalog unavailable")
+        return pages[page]
+
+    monkeypatch.setattr(myanimelist, "_jikan_fetch", fetch_page)
+    monkeypatch.setattr(myanimelist.time, "sleep", lambda _seconds: None)
+
+    candidates = adapter._fetch_candidates_jikan([], pool_size=3)
+
+    assert [candidate.id for candidate in candidates] == [1, 2]
+
+
+def test_jikan_candidate_pool_still_fails_when_the_first_page_is_unavailable(monkeypatch):
+    adapter = MALAdapter()
+    monkeypatch.setattr(
+        myanimelist,
+        "_jikan_fetch",
+        lambda _endpoint: (_ for _ in ()).throw(
+            myanimelist.CandidateSourceError("catalog unavailable")
+        ),
+    )
+
+    with pytest.raises(myanimelist.CandidateSourceError, match="catalog unavailable"):
+        adapter._fetch_candidates_jikan([], pool_size=3)
