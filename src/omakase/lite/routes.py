@@ -300,7 +300,10 @@ async def admin_requests(request: Request):
             context={
                 "user": user,
                 "csrf_token": _csrf_for_session(request, conn),
-                "requests": db.list_access_requests(conn),
+                "accepted_invitations": db.list_accepted_invitations(conn),
+                "requests": [
+                    item for item in db.list_access_requests(conn) if item["status"] != "claimed"
+                ],
                 "focus": request.query_params.get("focus", ""),
             },
         )

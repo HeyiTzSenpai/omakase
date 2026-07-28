@@ -36,7 +36,7 @@ The hosted counter accepts a public AniList username or a MyAnimeList XML export
 
 ### Omakase Lite accounts
 
-Lite accounts are invitation-only. The owner creates a one-time, seven-day link from the private Invitations page and shares it directly with a friend; the recipient supplies their own name, email, and password while claiming it. There is no public access-request form or queue. Historical request numbers are stable and separate from internal database IDs. A Lite account adds:
+Lite accounts are invitation-only. The owner creates a one-time, seven-day link from the private Invitations page and shares it directly with a friend; the recipient supplies their own name, email, and password while claiming it. There is no public access-request form or queue. Every successful claim appears in the owner-only invitation ledger with the member's name, email, acceptance time, and a stable public number that is separate from internal database IDs. A Lite account adds:
 
 - saved recommendation history and a local My List;
 - encrypted, reusable provider keys that are never shown back to the browser;

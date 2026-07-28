@@ -16,8 +16,34 @@
     <button id="create-owner-invite" type="button">Create invitation <span aria-hidden="true">→</span></button>
     <div id="owner-invite-result" class="invite-result" aria-live="polite"></div>
   </section>
+  <section class="accepted-invitations" aria-labelledby="accepted-invitations-heading">
+    <div class="ledger-heading">
+      <p class="eyebrow">Invitation ledger</p>
+      <h2 id="accepted-invitations-heading">Accepted invitations</h2>
+      <p>Everyone who has accepted a Lite invitation appears here.</p>
+    </div>
+    <div class="request-table" role="list" aria-label="Accepted invitations">
+    {% for item in accepted_invitations %}
+      <article class="request-row accepted-invitation-row{% if focus == item.public_number|string %} is-focus{% endif %}" role="listitem" data-invite-id="{{ item.id }}">
+        <div class="request-id">#{{ item.public_number }}</div>
+        <div>
+          <h3>{{ item.display_name }}</h3>
+          <a href="mailto:{{ item.email }}">{{ item.email }}</a>
+          <p>{{ item.contact or ("Direct invitation" if item.invite_kind == "direct" else "Earlier access request") }}</p>
+        </div>
+        <p class="request-note">{{ item.note or ("Accepted a direct owner invitation." if item.invite_kind == "direct" else "Accepted account access.") }}</p>
+        <div class="request-action accepted-invitation-status">
+          <span class="status status--accepted">Accepted</span>
+          <time datetime="{{ item.accepted_at }}">{{ item.accepted_at[:16] | replace("T", " ") }} UTC</time>
+        </div>
+      </article>
+    {% else %}
+      <p class="empty-state">No invitations accepted yet.</p>
+    {% endfor %}
+    </div>
+  </section>
   {% if requests %}<p class="eyebrow request-history-label">Earlier access history</p>{% endif %}
-  <div class="request-table" role="list">
+  {% if requests %}<div class="request-table" role="list" aria-label="Earlier access history">
   {% for item in requests %}
     <article class="request-row{% if focus == item.public_number|string %} is-focus{% endif %}" role="listitem" data-request-id="{{ item.id }}">
       <div class="request-id">#{{ item.public_number }}</div>
@@ -34,9 +60,7 @@
       </div>
       <div class="invite-result" aria-live="polite"></div>
     </article>
-  {% else %}
-    <p class="empty-state">No earlier access history.</p>
   {% endfor %}
-  </div>
+  </div>{% endif %}
 </div>
 {% endblock %}

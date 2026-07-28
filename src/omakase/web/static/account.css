@@ -138,18 +138,23 @@ button:disabled { cursor: wait; opacity: .65; }
 .owner-invite-panel h2 { margin: 0 0 .5rem; font-size: clamp(2rem, 4vw, 3.2rem); }
 .owner-invite-panel p:not(.eyebrow) { max-width: 64ch; margin: 0; color: var(--paper-muted); }
 .owner-invite-panel .invite-result { grid-column: 1 / -1; }
+.accepted-invitations { margin-top: 4rem; }
+.ledger-heading { max-width: 680px; margin-bottom: 1.25rem; }
+.ledger-heading h2 { margin: .35rem 0 .5rem; font-size: clamp(2rem, 4vw, 3.2rem); }
+.ledger-heading > p:not(.eyebrow) { margin: 0; color: var(--paper-muted); }
 .request-history-label { margin-top: 4rem; }
 .request-table { border-top: 1px solid var(--line); }
 .request-row { padding: 1.2rem 0; display: grid; grid-template-columns: 60px 1fr 1.3fr 160px; gap: 1.4rem; border-bottom: 1px solid var(--line); }
 .request-row.is-focus { border-left: 2px solid var(--brass); padding-left: 1rem; }
-.request-row h2 { margin: 0 0 .2rem; font: 1.5rem var(--display); }
+.request-row h2, .request-row h3 { margin: 0 0 .2rem; font: 1.5rem var(--display); }
 .request-row p { margin: .2rem 0; color: var(--paper-dim); }
 .request-id { color: var(--brass); font: .72rem var(--mono); }
 .request-note { color: var(--paper-muted) !important; }
 .request-action { display: grid; align-content: start; gap: .6rem; }
 .status { color: var(--paper-dim); font: .7rem var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .status--pending { color: var(--brass); }
-.status--claimed { color: var(--success); }
+.status--claimed, .status--accepted { color: var(--success); }
+.accepted-invitation-status time { color: var(--paper-dim); font: .7rem var(--mono); line-height: 1.5; }
 .invite-result { grid-column: 2 / -1; display: flex; align-items: end; gap: .7rem; }
 .invite-result label { flex: 1; }
 

@@ -82,6 +82,112 @@ def test_owner_invite_migration_backfills_retained_request_as_public_number_one(
     }
 
 
+def test_accepted_invitation_migration_backfills_legacy_and_direct_claims(tmp_path):
+    database_path = tmp_path / "omakase-lite.db"
+    conn = sqlite3.connect(database_path)
+    conn.execute(
+        """
+        CREATE TABLE account_migrations (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    for migration_name in (
+        "001-lite-accounts.sql",
+        "002-account-experience.sql",
+        "003-owner-issued-invites.sql",
+    ):
+        conn.executescript((db._MIGRATIONS / migration_name).read_text(encoding="utf-8"))
+        conn.execute("INSERT INTO account_migrations (name) VALUES (?)", (migration_name,))
+    conn.executemany(
+        """
+        INSERT INTO account_users
+            (id, email, password_hash, display_name, role, created_at)
+        VALUES (?, ?, 'hash', ?, ?, ?)
+        """,
+        (
+            (1, "owner@example.com", "Owner", "admin", "2026-07-28 04:00:00"),
+            (5, "first@example.com", "First Friend", "member", "2026-07-28 04:14:12"),
+            (9, "second@example.com", "Second Friend", "member", "2026-07-28 11:53:02"),
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO account_access_requests
+            (id, email, display_name, contact, note, status, public_number)
+        VALUES (4, 'first@example.com', 'First Friend', '@first', 'First request',
+                'claimed', 1)
+        """
+    )
+    conn.execute("UPDATE account_request_number_sequence SET next_number = 2 WHERE singleton = 1")
+    conn.executemany(
+        """
+        INSERT INTO account_invites
+            (id, access_request_id, email, kind, token_hash, expires_at,
+             claimed_at, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, '2026-08-04T00:00:00+00:00', ?, 1, ?)
+        """,
+        (
+            (
+                1,
+                4,
+                "first@example.com",
+                "request",
+                "legacy-hash",
+                "2026-07-28T04:14:12.200000+00:00",
+                "2026-07-28 04:10:00",
+            ),
+            (
+                5,
+                None,
+                None,
+                "direct",
+                "direct-hash",
+                "2026-07-28T11:53:02.364104+00:00",
+                "2026-07-28 06:34:18",
+            ),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    migrated = db.connect(tmp_path)
+    accepted = db.list_accepted_invitations(migrated)
+
+    assert [
+        (
+            row["public_number"],
+            row["display_name"],
+            row["email"],
+            row["invite_kind"],
+            row["accepted_at"],
+        )
+        for row in accepted
+    ] == [
+        (
+            1,
+            "First Friend",
+            "first@example.com",
+            "request",
+            "2026-07-28T04:14:12.200000+00:00",
+        ),
+        (
+            2,
+            "Second Friend",
+            "second@example.com",
+            "direct",
+            "2026-07-28T11:53:02.364104+00:00",
+        ),
+    ]
+    assert (
+        migrated.execute(
+            "SELECT next_number FROM account_request_number_sequence WHERE singleton = 1"
+        ).fetchone()["next_number"]
+        == 3
+    )
+
+
 def test_account_experience_migration_adds_credentials_scores_and_setup(tmp_path):
     conn = _connection(tmp_path)
 
@@ -372,6 +478,16 @@ def test_owner_can_issue_direct_invite_and_recipient_supplies_account_details(tm
     assert member is not None
     assert member.email == "newfriend@example.com"
     assert member.display_name == "New Friend"
+    accepted = db.list_accepted_invitations(conn)
+    assert [
+        (
+            row["public_number"],
+            row["display_name"],
+            row["email"],
+            row["invite_kind"],
+        )
+        for row in accepted
+    ] == [(1, "New Friend", "newfriend@example.com", "direct")]
 
     with pytest.raises(db.InviteError, match="already been used"):
         db.claim_invite(
@@ -381,6 +497,7 @@ def test_owner_can_issue_direct_invite_and_recipient_supplies_account_details(tm
             password="another-strong-password",
             display_name="Another",
         )
+    assert len(db.list_accepted_invitations(conn)) == 1
 
 
 def test_direct_invite_allows_only_one_concurrent_claim(tmp_path):

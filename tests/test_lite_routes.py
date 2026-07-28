@@ -229,6 +229,75 @@ def test_inbox_shows_public_request_number_not_internal_row_id(monkeypatch, tmp_
     assert '<div class="request-id">#4</div>' not in inbox.text
 
 
+def test_inbox_lists_every_accepted_invitation_with_member_information(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    request_id = db.create_access_request(
+        conn,
+        email="first@example.com",
+        display_name="First Friend",
+        contact="@first",
+        note="Original access request",
+    )
+    legacy_invite = db.approve_access_request(conn, request_id=request_id, admin_id=1)
+    db.claim_invite(
+        conn,
+        token=legacy_invite,
+        password="a-strong-first-password",
+        display_name="First Friend",
+    )
+    conn.close()
+
+    _login(client, "owner@example.com", "owner-password")
+    owner_session = client.get("/api/account/session").json()
+    issued = client.post(
+        "/account/admin/invites",
+        data={"csrf_token": owner_session["csrf_token"]},
+    )
+    direct_token = urlsplit(issued.json()["invite_url"]).fragment
+    client.post(
+        "/account/logout",
+        data={"csrf_token": owner_session["csrf_token"]},
+        follow_redirects=False,
+    )
+    client.post(
+        "/account/invite/claim",
+        data={
+            "token": direct_token,
+            "email": "second@example.com",
+            "display_name": "Second Friend",
+            "password": "a-strong-second-password",
+            "confirm_password": "a-strong-second-password",
+        },
+        follow_redirects=False,
+    )
+    member_session = client.get("/api/account/session").json()
+    client.post(
+        "/account/logout",
+        data={"csrf_token": member_session["csrf_token"]},
+        follow_redirects=False,
+    )
+    _login(client, "owner@example.com", "owner-password")
+
+    inbox = client.get("/account/admin/requests")
+
+    assert inbox.status_code == 200
+    assert "Accepted invitations" in inbox.text
+    assert "Everyone who has accepted a Lite invitation appears here." in inbox.text
+    assert '<div class="request-id">#1</div>' in inbox.text
+    assert '<div class="request-id">#2</div>' in inbox.text
+    assert "<h3>First Friend</h3>" in inbox.text
+    assert "first@example.com" in inbox.text
+    assert "<h3>Second Friend</h3>" in inbox.text
+    assert "second@example.com" in inbox.text
+    assert inbox.text.count('class="status status--accepted"') == 2
+    assert inbox.text.count("<time ") == 2
+
+
 def test_guest_admin_inbox_redirects_to_login(monkeypatch, tmp_path):
     client = _client(monkeypatch, tmp_path)
 

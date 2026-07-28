@@ -248,6 +248,31 @@ def list_access_requests(conn: sqlite3.Connection, *, status: str | None = None)
     return [dict(row) for row in rows]
 
 
+def list_accepted_invitations(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT accepted.public_number,
+               accepted.invite_id AS id,
+               member.email,
+               member.display_name,
+               invite.kind AS invite_kind,
+               invite.created_at AS invited_at,
+               accepted.accepted_at,
+               COALESCE(request.contact, '') AS contact,
+               COALESCE(request.note, '') AS note
+          FROM account_invitation_acceptances AS accepted
+          JOIN account_invites AS invite
+            ON invite.id = accepted.invite_id
+          JOIN account_users AS member
+            ON member.id = accepted.user_id
+          LEFT JOIN account_access_requests AS request
+            ON request.id = invite.access_request_id
+         ORDER BY accepted.public_number
+        """
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def approve_access_request(
     conn: sqlite3.Connection,
     *,
@@ -350,8 +375,10 @@ def claim_invite(
         row = conn.execute(
             """
             SELECT i.id, i.email, i.kind, i.expires_at, i.claimed_at,
-                   i.access_request_id
+                   i.access_request_id, request.public_number AS request_public_number
               FROM account_invites i
+              LEFT JOIN account_access_requests AS request
+                ON request.id = i.access_request_id
              WHERE i.token_hash = ?
             """,
             (hash_token(token),),
@@ -382,9 +409,39 @@ def claim_invite(
             display_name=display_name,
             commit=False,
         )
+        if row["kind"] == "request":
+            public_number = row["request_public_number"]
+            if public_number is None:
+                raise RuntimeError("The invitation history number is unavailable.")
+        else:
+            conn.execute(
+                """
+                UPDATE account_request_number_sequence
+                   SET next_number = next_number + 1
+                 WHERE singleton = 1
+                """
+            )
+            number_row = conn.execute(
+                """
+                SELECT next_number - 1 AS public_number
+                  FROM account_request_number_sequence
+                 WHERE singleton = 1
+                """
+            ).fetchone()
+            if number_row is None:
+                raise RuntimeError("The invitation history number sequence is unavailable.")
+            public_number = number_row["public_number"]
         conn.execute(
             "UPDATE account_invites SET claimed_at = ? WHERE id = ?",
             (current.isoformat(), row["id"]),
+        )
+        conn.execute(
+            """
+            INSERT INTO account_invitation_acceptances
+                (public_number, invite_id, user_id, accepted_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (public_number, row["id"], user_id, current.isoformat()),
         )
         if row["access_request_id"] is not None:
             conn.execute(
