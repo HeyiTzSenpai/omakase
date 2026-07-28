@@ -14,6 +14,7 @@ import secrets
 import threading
 import time
 from pathlib import Path
+from urllib.error import HTTPError
 
 import httpx
 import uvicorn
@@ -344,6 +345,14 @@ def _run_config(req: RecommendRequest, cfg: OmakaseConfig):
             detail=("The selected model returned an incomplete menu. Try again, or use Fast mode."),
         ) from e
     except Exception as e:
+        if isinstance(e, HTTPError) and e.code == 404 and req.source == "anilist":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "AniList could not find that user. Check the username "
+                    "and make sure the anime list is public."
+                ),
+            ) from e
         logger.error("Recommendation request failed: %s", type(e).__name__)
         raise HTTPException(
             status_code=500,

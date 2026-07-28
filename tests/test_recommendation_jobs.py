@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import time
+from io import BytesIO
 from threading import Event
+from urllib.error import HTTPError
 
 from fastapi.testclient import TestClient
 
@@ -81,6 +83,32 @@ def test_hosted_deepseek_pro_runs_as_background_job_and_forgets_key(
     assert result["account_saved"] is False
     assert captured == {"model": "deepseek-v4-pro", "key": "request-only-secret"}
     assert "request-only-secret" not in server.recommendation_jobs_debug_snapshot()
+
+
+def test_anilist_user_not_found_job_returns_actionable_error(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+
+    def missing_anilist_user(_cfg):
+        raise HTTPError(
+            "https://graphql.anilist.co",
+            404,
+            "Not Found",
+            {},
+            BytesIO(b'{"errors":[{"message":"User not found","status":404}]}'),
+        )
+
+    monkeypatch.setattr(server, "run_pipeline", missing_anilist_user)
+    response = client.post("/api/recommend/jobs", json=_payload(username="missing-user"))
+
+    assert response.status_code == 202
+    result = _poll_until_terminal(client, response.json()["job_id"])
+    assert result["status"] == "error"
+    assert result["status_code"] == 400
+    assert result["detail"] == (
+        "AniList could not find that user. Check the username and make sure "
+        "the anime list is public."
+    )
+    assert "key" not in result["detail"].lower()
 
 
 def test_account_job_saves_results_and_uses_profile_feedback_context(
