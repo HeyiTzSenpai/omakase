@@ -28,6 +28,7 @@ Guests keep the original request-local behavior. Signed-in people may save taste
 
 - Explicit provider selection prevents ambiguous `sk-` keys from being sent to the wrong company.
 - Passwords use Argon2id. Session and invitation values are SHA-256 hashes at rest.
+- A one-time invitation travels in the URL fragment and is moved into the claim form body, so reverse-proxy and application access logs never receive it.
 - Cookies are HttpOnly, Secure in production, SameSite=Lax, and scoped to `/`.
 - Signed-in mutations require a matching CSRF token and same-origin request.
 - Anonymous request, login, and invite-claim routes are rate-limited in process; the access form also has a honeypot.

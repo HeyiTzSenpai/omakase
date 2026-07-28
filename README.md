@@ -128,10 +128,13 @@ The base Compose stack persists Lite state in the `omakase_lite_data` volume and
 ```bash
 mkdir -p secrets
 # Write the webhook to secrets/access-discord-webhook without committing it.
+chmod 700 secrets
+chgrp 1000 secrets/access-discord-webhook
+chmod 640 secrets/access-discord-webhook
 docker compose -f compose.yaml -f compose.production.yaml up -d --build
 ```
 
-The Discord message contains only the request number, display name, and owner-inbox URL. Email, contact details, and notes stay in the Lite database. Bootstrap the owner by piping an existing Argon2id hash over standard input; the command never prints the hash:
+The container runs as UID/GID 1000, so the webhook file must be group-readable by GID 1000 on the host. The Discord message contains only the request number, display name, and owner-inbox URL. Email, contact details, and notes stay in the Lite database. One-time invitation secrets travel in the URL fragment, which browsers do not send in HTTP requests, then move into the claim form body. Bootstrap the owner by piping an existing Argon2id hash over standard input; the command never prints the hash:
 
 ```bash
 docker compose exec -T omakase \

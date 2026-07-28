@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from fastapi.testclient import TestClient
 
 from omakase.lite import auth, db, routes
@@ -101,17 +103,32 @@ def test_admin_can_approve_and_friend_can_claim_invite(monkeypatch, tmp_path):
     )
     assert approved.status_code == 200
     invite_url = approved.json()["invite_url"]
-    assert invite_url.startswith("https://omakase.example/account/invite/")
+    assert invite_url.startswith("https://omakase.example/account/invite#")
 
     client.post(
         "/account/logout",
         data={"csrf_token": session["csrf_token"]},
         follow_redirects=False,
     )
-    token = invite_url.rsplit("/", 1)[-1]
-    claim = client.post(
-        f"/account/invite/{token}",
+    token = urlsplit(invite_url).fragment
+    assert token
+    assert client.get("/account/invite").status_code == 200
+    mismatch = client.post(
+        "/account/invite/claim",
         data={
+            "token": token,
+            "display_name": "Friend",
+            "password": "a-strong-friend-password",
+            "confirm_password": "a-different-password",
+        },
+    )
+    assert mismatch.status_code == 400
+    assert f'value="{token}"' in mismatch.text
+    assert 'value="Friend"' in mismatch.text
+    claim = client.post(
+        "/account/invite/claim",
+        data={
+            "token": token,
             "display_name": "Friend",
             "password": "a-strong-friend-password",
             "confirm_password": "a-strong-friend-password",

@@ -38,3 +38,11 @@ def test_cross_origin_access_request_is_rejected(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 403
+
+
+def test_invite_secret_is_never_part_of_a_server_route():
+    route_paths = {route.path for route in server.app.routes}
+
+    assert "/account/invite" in route_paths
+    assert "/account/invite/claim" in route_paths
+    assert all("{token}" not in path for path in route_paths)

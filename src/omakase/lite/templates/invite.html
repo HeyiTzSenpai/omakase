@@ -11,8 +11,10 @@
     <p class="eyebrow">One-time invitation</p>
     <h2>Create your account.</h2>
     {% if error %}<div class="form-error" role="alert">{{ error }}</div>{% endif %}
-    <form method="post" action="/account/invite/{{ token }}">
-      <label>Name <input name="display_name" autocomplete="name" required maxlength="80"></label>
+    <div id="invite-client-error" class="form-error" role="alert" hidden>This invitation link is missing its one-time code.</div>
+    <form id="invite-form" method="post" action="/account/invite/claim">
+      <input id="invite-token" type="hidden" name="token" value="{{ token | default('') }}">
+      <label>Name <input name="display_name" autocomplete="name" required maxlength="80" value="{{ display_name | default('') }}"></label>
       <label>Password <input type="password" name="password" autocomplete="new-password" minlength="12" required></label>
       <label>Confirm password <input type="password" name="confirm_password" autocomplete="new-password" minlength="12" required></label>
       <p class="privacy-note">Use at least 12 characters. Passwords are stored as Argon2id hashes.</p>

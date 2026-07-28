@@ -366,7 +366,7 @@ async def approve_request(request_id: int, request: Request):
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     finally:
         conn.close()
-    return {"invite_url": f"{_public_url()}/account/invite/{token}"}
+    return {"invite_url": f"{_public_url()}/account/invite#{token}"}
 
 
 @page_router.post("/admin/requests/{request_id}/decline")
@@ -382,20 +382,21 @@ async def decline_request(request_id: int, request: Request):
     return JSONResponse({"ok": True})
 
 
-@page_router.get("/invite/{token}", response_class=HTMLResponse)
-async def invite_page(token: str, request: Request):
+@page_router.get("/invite", response_class=HTMLResponse)
+async def invite_page(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="invite.html",
-        context={"token": token},
+        context={},
     )
 
 
-@page_router.post("/invite/{token}")
-async def claim_invite(token: str, request: Request):
+@page_router.post("/invite/claim")
+async def claim_invite(request: Request):
     _validate_origin(request)
     _check_rate_limit(request, action="claim-invite", limit=10, window_seconds=15 * 60)
     form = await request.form()
+    token = str(form.get("token", ""))
     password = str(form.get("password", ""))
     display_name = str(form.get("display_name", "")).strip()
     error = ""
@@ -407,7 +408,7 @@ async def claim_invite(token: str, request: Request):
         return templates.TemplateResponse(
             request=request,
             name="invite.html",
-            context={"token": token, "error": error},
+            context={"error": error, "token": token, "display_name": display_name},
             status_code=400,
         )
 
@@ -424,7 +425,7 @@ async def claim_invite(token: str, request: Request):
             return templates.TemplateResponse(
                 request=request,
                 name="invite.html",
-                context={"token": token, "error": str(exc)},
+                context={"error": str(exc), "token": token, "display_name": display_name},
                 status_code=400,
             )
         session = auth.create_session(conn, user_id)

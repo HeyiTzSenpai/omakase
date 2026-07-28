@@ -65,6 +65,25 @@ async function decideRequest(button, action, requestId) {
   }
 }
 
+function prepareInviteForm() {
+  const form = document.querySelector("#invite-form");
+  const tokenField = document.querySelector("#invite-token");
+  if (!form || !tokenField) return;
+  if (window.location.hash) {
+    try {
+      tokenField.value = decodeURIComponent(window.location.hash.slice(1));
+    } catch {
+      tokenField.value = "";
+    }
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+  form.addEventListener("submit", (event) => {
+    if (tokenField.value) return;
+    event.preventDefault();
+    document.querySelector("#invite-client-error").hidden = false;
+  });
+}
+
 document.addEventListener("click", async (event) => {
   const profile = event.target.closest("#save-profile");
   if (profile) {
@@ -88,3 +107,5 @@ document.addEventListener("click", async (event) => {
     copy.textContent = "Copied";
   }
 });
+
+prepareInviteForm();
