@@ -173,7 +173,7 @@ def _validate_hosted_provider(req: RecommendRequest) -> None:
 
 
 @app.post("/api/recommend", response_model=RecommendResponse)
-async def recommend(req: RecommendRequest):
+def recommend(req: RecommendRequest):
     _validate_hosted_provider(req)
     export_data: bytes | None = None
     if req.mal_export_b64:

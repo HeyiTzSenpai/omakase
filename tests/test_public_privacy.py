@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import os
 
 from fastapi.testclient import TestClient
@@ -150,6 +151,10 @@ def test_health_reports_exact_source_commit(monkeypatch):
         "version": server.__version__,
         "sourceCommit": "a" * 40,
     }
+
+
+def test_recommendation_endpoint_runs_blocking_pipeline_off_the_event_loop():
+    assert not inspect.iscoroutinefunction(server.recommend)
 
 
 def test_hosted_demo_closes_profile_and_model_discovery_endpoints(monkeypatch):
