@@ -110,6 +110,7 @@ function updateProvider() {
   const fastOnly = Boolean(provider.fastOnly);
   proMode.disabled = fastOnly;
   proMode.closest("label").hidden = fastOnly;
+  proMode.closest(".segment-control").classList.toggle("is-single", fastOnly);
   if (fastOnly) fastMode.checked = true;
   const mode = selectedValue("model-mode") || "fast";
   byId("llm_type").value = name;

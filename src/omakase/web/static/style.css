@@ -576,6 +576,10 @@ fieldset > legend,
   background: var(--line);
 }
 
+.segment-control.is-single {
+  grid-template-columns: 1fr;
+}
+
 .segment-control label {
   position: relative;
   display: block;
