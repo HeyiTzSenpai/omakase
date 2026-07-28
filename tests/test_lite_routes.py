@@ -142,6 +142,15 @@ def test_admin_can_approve_and_friend_can_claim_invite(monkeypatch, tmp_path):
     assert member_session["role"] == "member"
 
 
+def test_guest_admin_inbox_redirects_to_login(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+
+    response = client.get("/account/admin/requests", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/account/login"
+
+
 def test_member_cannot_open_admin_inbox_or_change_another_users_feedback(
     monkeypatch,
     tmp_path,

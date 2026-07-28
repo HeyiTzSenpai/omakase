@@ -41,6 +41,56 @@ def test_cross_origin_access_request_is_rejected(monkeypatch, tmp_path):
     assert response.status_code == 403
 
 
+def test_public_origin_is_accepted_when_proxy_rewrites_request_host(monkeypatch, tmp_path):
+    monkeypatch.setenv("OMAKASE_LITE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("OMAKASE_PUBLIC_URL", "https://omakase.example")
+    monkeypatch.setenv("OMAKASE_TRUST_PROXY", "true")
+    response = TestClient(server.app, base_url="http://internal:8765").post(
+        "/account/request",
+        headers={"Origin": "https://omakase.example"},
+        data={
+            "email": "friend@example.com",
+            "display_name": "",
+            "contact": "",
+            "note": "",
+            "website": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Tell us what name to use." in response.text
+
+
+def test_opaque_origin_is_accepted_only_with_same_origin_fetch_metadata(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("OMAKASE_LITE_DATA_DIR", str(tmp_path))
+    client = TestClient(server.app, base_url="https://omakase.example")
+    form = {
+        "email": "friend@example.com",
+        "display_name": "",
+        "contact": "",
+        "note": "",
+        "website": "",
+    }
+
+    same_origin = client.post(
+        "/account/request",
+        headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"},
+        data=form,
+    )
+    cross_site = client.post(
+        "/account/request",
+        headers={"Origin": "null", "Sec-Fetch-Site": "cross-site"},
+        data=form,
+    )
+
+    assert same_origin.status_code == 400
+    assert "Tell us what name to use." in same_origin.text
+    assert cross_site.status_code == 403
+
+
 def test_invite_secret_is_never_part_of_a_server_route():
     route_paths = {
         path

@@ -79,8 +79,33 @@ def _validate_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     if not origin:
         return
-    parsed = urlparse(origin)
-    if parsed.scheme not in {"http", "https"} or parsed.netloc != request.url.netloc:
+    if origin == "null":
+        if request.headers.get("sec-fetch-site", "").lower() == "same-origin":
+            return
+        raise HTTPException(status_code=403, detail="Request origin was not accepted.")
+
+    def normalized(value: str) -> tuple[str, str, int | None] | None:
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        try:
+            port = parsed.port
+        except ValueError:
+            return None
+        if port == (443 if parsed.scheme == "https" else 80):
+            port = None
+        return parsed.scheme, parsed.hostname.lower(), port
+
+    submitted = normalized(origin)
+    allowed = {normalized(str(request.url))}
+    if os.getenv("OMAKASE_TRUST_PROXY", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        allowed.add(normalized(_public_url()))
+    if submitted is None or submitted not in allowed:
         raise HTTPException(status_code=403, detail="Request origin was not accepted.")
 
 
@@ -334,7 +359,11 @@ async def account_dashboard(request: Request):
 async def admin_requests(request: Request):
     conn = db.connect()
     try:
-        user = _require_admin(request, conn)
+        user = _session_user(request, conn)
+        if user is None:
+            return RedirectResponse("/account/login", status_code=302)
+        if user.role != "admin":
+            raise HTTPException(status_code=403, detail="Owner access is required.")
         return templates.TemplateResponse(
             request=request,
             name="admin_requests.html",
