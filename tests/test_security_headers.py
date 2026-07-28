@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from omakase.lite import routes as lite_routes
 from omakase.web import server
 
 
@@ -43,7 +44,7 @@ def test_cross_origin_access_request_is_rejected(monkeypatch, tmp_path):
 def test_invite_secret_is_never_part_of_a_server_route():
     route_paths = {
         path
-        for route in server.app.routes
+        for route in lite_routes.page_router.routes
         if (path := getattr(route, "path", None)) is not None
     }
 
