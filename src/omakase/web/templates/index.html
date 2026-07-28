@@ -23,6 +23,11 @@
     </a>
     <span aria-hidden="true">/</span>
     <span>omakase</span>
+    <span class="account-entry">
+      <a id="account-request-link" href="/account/request">Request access</a>
+      <a id="account-login-link" href="/account/login">Sign in</a>
+      <a id="account-home-link" href="/account" hidden>My counter</a>
+    </span>
   </nav>
 
   <main id="counter">
@@ -45,7 +50,7 @@
           <div class="story-facts" aria-label="Omakase public demo facts">
             <span>One request</span>
             <span>Your model key</span>
-            <span>No account</span>
+            <span>Guest or Lite account</span>
           </div>
         </div>
       </div>
@@ -64,7 +69,7 @@
             <path d="M12 3 5 6v5c0 4.7 2.8 8.3 7 10 4.2-1.7 7-5.3 7-10V6l-7-3Z"></path>
             <path d="m9 12 2 2 4-5"></path>
           </svg>
-          <p><strong>Request-local by design.</strong> Your key and taste notes are used for this menu and never written to disk, logs, cookies, or a database.</p>
+          <p id="privacy-receipt-copy"><strong>Request-local by design.</strong> Your key and taste notes are used for this menu and never written to disk, logs, cookies, or a database.</p>
         </div>
 
         <div class="error-banner" id="error-banner" role="alert" tabindex="-1" hidden>
@@ -225,7 +230,7 @@
               <p class="course-label">Before the request</p>
               <ul>
                 <li>The model key goes only to the provider you selected.</li>
-                <li>Your history and notes go to that provider for this request. Omakase does not save them.</li>
+                <li id="history-privacy-copy">Your history and notes go to that provider for this request. Omakase does not save them.</li>
                 <li>Private Plus automation is not connected to this demo.</li>
               </ul>
             </div>
@@ -266,7 +271,7 @@
 
   <footer class="footer">
     <p><a href="https://github.com/HeyiTzSenpai/omakase">Omakase on GitHub</a> <span aria-hidden="true">/</span> MIT licensed</p>
-    <p>Plus accounts are private and not currently open.</p>
+    <p><a href="/account/request">Request a Lite account</a> <span aria-hidden="true">/</span> recommendation-only access</p>
   </footer>
 
   <noscript><p class="noscript">Omakase needs JavaScript to prepare an interactive recommendation menu.</p></noscript>

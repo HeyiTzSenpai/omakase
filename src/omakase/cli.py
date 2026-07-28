@@ -162,6 +162,38 @@ def backends():
         click.echo(f"  - {b}")
 
 
+@cli.command("account-bootstrap")
+@click.option("--email", required=True, help="Owner email address")
+@click.option("--display-name", default="Owner", show_default=True)
+@click.option(
+    "--password-hash-stdin",
+    is_flag=True,
+    required=True,
+    help="Read an existing Argon2id password hash from standard input",
+)
+def account_bootstrap(email, display_name, password_hash_stdin):
+    """Create or update the Omakase Lite owner without handling plaintext."""
+    from omakase.lite import db
+
+    password_hash = click.get_text_stream("stdin").readline().strip()
+    if not password_hash.startswith("$argon2id$"):
+        raise click.ClickException("Standard input must contain one Argon2id password hash.")
+    conn = db.connect()
+    try:
+        try:
+            user_id = db.bootstrap_admin(
+                conn,
+                email=email,
+                password_hash=password_hash,
+                display_name=display_name,
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    finally:
+        conn.close()
+    click.echo(f"Omakase Lite owner is ready (account {user_id}).")
+
+
 @cli.command()
 @click.argument("path", type=click.Path(), default="taste-profile.md")
 def init(path):

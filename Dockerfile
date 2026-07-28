@@ -19,7 +19,9 @@ LABEL org.opencontainers.image.description="An LLM-powered sommelier for anime"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.revision="${OMAKASE_SOURCE_COMMIT}"
 
-RUN useradd --create-home --uid 1000 omakase
+RUN useradd --create-home --uid 1000 omakase && \
+    mkdir -p /home/omakase/data/lite && \
+    chown -R omakase:omakase /home/omakase/data
 WORKDIR /home/omakase
 
 COPY --from=builder /wheels/*.whl /tmp/

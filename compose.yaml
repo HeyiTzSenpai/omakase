@@ -18,8 +18,17 @@ services:
       - "8765:8765"
     environment:
       OMAKASE_PUBLIC_HOSTED: "true"
+      OMAKASE_TRUST_PROXY: "true"
       OMAKASE_SOURCE_COMMIT: ${OMAKASE_SOURCE_COMMIT:-development}
+      OMAKASE_PUBLIC_URL: ${OMAKASE_PUBLIC_URL:-https://omakase.jhinx.dev}
+      OMAKASE_LITE_DATA_DIR: /home/omakase/data/lite
+    volumes:
+      - omakase_lite_data:/home/omakase/data/lite
     # Visitors supply LLM keys in the web form for one request. The public
     # service does not use a server-side provider key or MAL client ID.
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
+volumes:
+  omakase_lite_data:
+    name: omakase_lite_data

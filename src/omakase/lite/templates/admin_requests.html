@@ -1,0 +1,32 @@
+{% extends "account_base.html" %}
+{% block title %}Access requests · Omakase Lite{% endblock %}
+{% block content %}
+<div class="admin-shell">
+  <header class="admin-heading">
+    <p class="eyebrow">Owner inbox</p>
+    <h1>Access requests</h1>
+    <p>Approve a person to create a one-time invitation. Contact details stay here and are never copied into the Discord alert.</p>
+  </header>
+  <div class="request-table" role="list">
+  {% for item in requests %}
+    <article class="request-row{% if focus == item.id|string %} is-focus{% endif %}" role="listitem" data-request-id="{{ item.id }}">
+      <div class="request-id">#{{ item.id }}</div>
+      <div><h2>{{ item.display_name }}</h2><a href="mailto:{{ item.email }}">{{ item.email }}</a><p>{{ item.contact or "No alternate contact" }}</p></div>
+      <p class="request-note">{{ item.note or "No note supplied." }}</p>
+      <div class="request-action">
+        <span class="status status--{{ item.status }}">{{ item.status }}</span>
+        {% if item.status != "claimed" %}
+        <button type="button" data-approve="{{ item.id }}">{% if item.status == "approved" %}New invite{% else %}Approve{% endif %}</button>
+        {% if item.status != "declined" %}
+        <button class="text-button" type="button" data-decline="{{ item.id }}">Decline</button>
+        {% endif %}
+        {% endif %}
+      </div>
+      <div class="invite-result" aria-live="polite"></div>
+    </article>
+  {% else %}
+    <p class="empty-state">No access requests yet.</p>
+  {% endfor %}
+  </div>
+</div>
+{% endblock %}

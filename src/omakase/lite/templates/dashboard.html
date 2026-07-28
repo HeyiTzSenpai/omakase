@@ -1,0 +1,51 @@
+{% extends "account_base.html" %}
+{% block title %}My counter · Omakase Lite{% endblock %}
+{% block content %}
+<div class="dashboard-shell">
+  <aside class="dashboard-side">
+    <p class="eyebrow">Omakase Lite</p>
+    <h1>{{ user.display_name }}’s counter</h1>
+    <p>Your recommendations live here. Your model key never does.</p>
+    <a class="button-link" href="/">Cook a new menu</a>
+    <form method="post" action="/account/logout">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="text-button" type="submit">Sign out</button>
+    </form>
+  </aside>
+  <div class="dashboard-main">
+    <section class="dashboard-section" aria-labelledby="taste-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">Palate note</p><h2 id="taste-title">What should the chef remember?</h2></div>
+        <span id="profile-status" aria-live="polite"></span>
+      </div>
+      <textarea id="account-profile" rows="5" maxlength="10000" placeholder="I like patient mysteries, earned emotion, and ambitious science fiction.">{{ taste_profile }}</textarea>
+      <button id="save-profile" type="button">Save taste note</button>
+    </section>
+    <section class="dashboard-section" aria-labelledby="saved-title">
+      <div class="section-heading"><div><p class="eyebrow">My list</p><h2 id="saved-title">Saved for later</h2></div><span>{{ saved|length }} picks</span></div>
+      {% if saved %}
+        <ol class="recommendation-list">
+        {% for item in saved %}
+          <li><div><a href="{{ item.url or '#' }}">{{ item.title }}</a><p>{{ item.reasoning }}</p></div><strong>{{ item.predicted_score }}</strong></li>
+        {% endfor %}
+        </ol>
+      {% else %}<p class="empty-state">Nothing saved yet. Make a menu, then choose “Add to My List” on anything that catches your eye.</p>{% endif %}
+    </section>
+    <section class="dashboard-section" aria-labelledby="history-title">
+      <div class="section-heading"><div><p class="eyebrow">Past service</p><h2 id="history-title">Recommendation history</h2></div><span>{{ history|length }} menus</span></div>
+      {% if history %}
+        {% for run in history %}
+        <details class="history-run" {% if loop.first %}open{% endif %}>
+          <summary><span>{{ run.created_at }} · {{ run.provider }} / {{ run.mode }}</span><strong>{{ run.recommendations|length }} picks</strong></summary>
+          <ol class="recommendation-list">
+          {% for item in run.recommendations %}
+            <li data-recommendation-id="{{ item.id }}"><div><a href="{{ item.url or '#' }}">{{ item.title }}</a><p>{{ item.reasoning }}</p><small>{{ item.feedback_state|replace('_', ' ') }}</small></div><strong>{{ item.predicted_score }}</strong></li>
+          {% endfor %}
+          </ol>
+        </details>
+        {% endfor %}
+      {% else %}<p class="empty-state">Your completed menus will appear here.</p>{% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

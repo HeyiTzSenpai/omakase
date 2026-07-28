@@ -1,0 +1,13 @@
+# Production-only secret overlay. The base compose file remains usable without
+# Discord; operators that want access-request alerts provide the local secret
+# file and include this overlay when deploying.
+services:
+  omakase:
+    environment:
+      OMAKASE_ACCESS_DISCORD_WEBHOOK_FILE: /run/secrets/access_discord_webhook
+    secrets:
+      - access_discord_webhook
+
+secrets:
+  access_discord_webhook:
+    file: ./secrets/access-discord-webhook

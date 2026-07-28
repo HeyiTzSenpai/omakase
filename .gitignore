@@ -43,6 +43,7 @@ config.yml
 .env
 .env.*
 !.env.example
+secrets/
 
 # Tool-specific
 .claude/

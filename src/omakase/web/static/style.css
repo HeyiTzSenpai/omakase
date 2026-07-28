@@ -110,6 +110,16 @@ a {
   color: var(--brass);
 }
 
+.account-entry {
+  display: flex;
+  gap: 1rem;
+  margin-left: auto;
+}
+
+.account-entry a {
+  color: var(--paper-muted);
+}
+
 .counter-shell {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(620px, 1.1fr);
@@ -965,6 +975,34 @@ fieldset > legend,
 .recommendation__link:hover {
   text-decoration: underline;
   text-underline-offset: 0.25rem;
+}
+
+.recommendation__actions {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.recommendation__feedback {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.7rem;
+  background: transparent;
+  color: var(--paper-muted);
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.recommendation__feedback:hover,
+.recommendation__feedback[aria-pressed="true"] {
+  border-color: var(--brass);
+  background: rgb(214 173 101 / 0.12);
+  color: var(--brass);
 }
 
 .empty-state {

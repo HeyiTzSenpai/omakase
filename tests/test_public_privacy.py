@@ -103,7 +103,7 @@ def test_hosted_demo_accepts_official_deepseek_provider(monkeypatch):
     assert cfg.supports_json_mode is True
 
 
-def test_hosted_deepseek_rejects_unverified_pro_mode(monkeypatch):
+def test_sync_endpoint_routes_deepseek_pro_to_background_jobs(monkeypatch):
     client = _client(monkeypatch)
     payload = _valid_payload() | {
         "llm_type": "deepseek",
@@ -116,7 +116,7 @@ def test_hosted_deepseek_rejects_unverified_pro_mode(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["detail"] == (
-        "The hosted DeepSeek option currently supports Fast mode only."
+        "DeepSeek Deep runs through the background recommendation endpoint."
     )
 
 

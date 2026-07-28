@@ -27,7 +27,6 @@ const PROVIDERS = {
     url: "https://api.deepseek.com",
     fast: "deepseek-v4-flash",
     pro: "deepseek-v4-pro",
-    fastOnly: true,
     hint: "Use a key from the DeepSeek Platform.",
   },
   openrouter: {
@@ -54,6 +53,9 @@ let malExportB64 = "";
 let loadingTimer = null;
 let loadingStartedAt = 0;
 let requestController = null;
+let activeJobId = "";
+let accountSession = { authenticated: false };
+let accountSessionLoaded = false;
 
 const byId = (id) => document.getElementById(id);
 
@@ -105,24 +107,15 @@ function updateSelectedCards(selector) {
 function updateProvider() {
   const name = selectedValue("provider") || "openai";
   const provider = PROVIDERS[name];
-  const fastMode = document.querySelector('input[name="model-mode"][value="fast"]');
-  const proMode = document.querySelector('input[name="model-mode"][value="pro"]');
-  const fastOnly = Boolean(provider.fastOnly);
-  proMode.disabled = fastOnly;
-  proMode.closest("label").hidden = fastOnly;
-  proMode.closest(".segment-control").classList.toggle("is-single", fastOnly);
-  if (fastOnly) fastMode.checked = true;
   const mode = selectedValue("model-mode") || "fast";
   byId("llm_type").value = name;
   byId("llm_url").value = provider.url;
   byId("mode").value = mode;
-  byId("model_override").disabled = fastOnly;
-  const override = fastOnly ? "" : byId("model_override").value.trim();
+  byId("model_override").disabled = false;
+  const override = byId("model_override").value.trim();
   byId("model").value = override || provider[mode];
   byId("key-hint").textContent = provider.hint;
-  byId("model-hint").textContent = fastOnly
-    ? `Hosted DeepSeek uses the verified Fast model, ${provider.fast}.`
-    : `${mode === "fast" ? "Quick" : "Deep"} currently selects ${provider[mode]}.`;
+  byId("model-hint").textContent = `${mode === "fast" ? "Quick" : "Deep"} currently selects ${provider[mode]}.`;
   updateSelectedCards(".choice-card");
 }
 
@@ -281,6 +274,34 @@ async function readApiResponse(response) {
   }
 }
 
+function abortableDelay(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, milliseconds);
+    signal.addEventListener("abort", () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+}
+
+async function pollRecommendationJob(jobId, signal) {
+  while (true) {
+    await abortableDelay(1200, signal);
+    const response = await fetch(`/api/recommend/jobs/${encodeURIComponent(jobId)}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal,
+    });
+    const data = await readApiResponse(response);
+    if (!response.ok) throw new Error(data.detail || "Omakase lost track of this menu.");
+    if (data.status === "done") return data;
+    if (data.status === "error") {
+      throw new Error(data.detail || "Omakase could not finish this menu.");
+    }
+    if (data.status === "cancelled") throw new DOMException("Aborted", "AbortError");
+  }
+}
+
 async function runRecommendations(event) {
   event.preventDefault();
   for (const course of COURSE_ORDER) {
@@ -291,22 +312,28 @@ async function runRecommendations(event) {
   setLoading(true);
   byId("results").hidden = true;
   try {
-    const response = await fetch("/api/recommend", {
+    if (!accountSessionLoaded) await loadAccountSession();
+    const headers = { "Content-Type": "application/json" };
+    if (accountSession.authenticated) headers["X-CSRF-Token"] = accountSession.csrf_token;
+    const response = await fetch("/api/recommend/jobs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "omit",
+      headers,
+      credentials: "same-origin",
       cache: "no-store",
       body: JSON.stringify(buildPayload()),
       signal: requestController.signal,
     });
-    const data = await readApiResponse(response);
-    if (!response.ok) throw new Error(data.detail || "Omakase could not finish this menu.");
+    const receipt = await readApiResponse(response);
+    if (!response.ok) throw new Error(receipt.detail || "Omakase could not start this menu.");
+    activeJobId = receipt.job_id;
+    const data = await pollRecommendationJob(activeJobId, requestController.signal);
     displayResults(data);
     byId("api_key").value = "";
   } catch (error) {
-    if (error.name === "AbortError") showError("The request was cancelled. Nothing was saved.", "taste");
+    if (error.name === "AbortError") showError("The menu was cancelled before it could be saved.", "taste");
     else showError(error.message || "Omakase could not finish this menu.", "taste");
   } finally {
+    activeJobId = "";
     requestController = null;
     setLoading(false);
   }
@@ -324,7 +351,7 @@ function displayResults(data) {
   const list = byId("results-list");
   list.replaceChildren();
   const sourceLabel = data.source === "myanimelist" ? "MAL export" : "AniList";
-  byId("results-meta").textContent = `${sourceLabel} / ${data.recommendations.length} picks`;
+  byId("results-meta").textContent = `${sourceLabel} / ${data.recommendations.length} picks${data.account_saved ? " / saved to My counter" : ""}`;
 
   if (!data.recommendations.length) {
     const empty = createText("p", "empty-state", "The model returned no usable picks. Try Quick mode or another provider.");
@@ -360,12 +387,89 @@ function displayResults(data) {
         link.setAttribute("aria-label", `Open ${recommendation.title} in a new tab`);
         article.appendChild(link);
       }
+      if (data.account_saved && recommendation.id) {
+        const actions = document.createElement("div");
+        actions.className = "recommendation__actions";
+        actions.setAttribute("aria-label", `Feedback for ${recommendation.title}`);
+        [
+          ["not_interested", "Not interested"],
+          ["saved", "Add to My List"],
+          ["watched", "Already watched"],
+        ].forEach(([state, label]) => {
+          const button = createText("button", "recommendation__feedback", label);
+          button.type = "button";
+          button.dataset.feedback = state;
+          button.dataset.recommendationId = recommendation.id;
+          button.setAttribute("aria-pressed", String(recommendation.feedback_state === state));
+          actions.appendChild(button);
+        });
+        article.appendChild(actions);
+      }
       list.appendChild(article);
     });
   }
 
   results.hidden = false;
   results.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+}
+
+async function saveFeedback(button) {
+  if (!accountSession.authenticated) return;
+  const state = button.dataset.feedback;
+  const response = await fetch(`/api/account/recommendations/${button.dataset.recommendationId}/feedback`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": accountSession.csrf_token,
+    },
+    body: JSON.stringify({ state }),
+  });
+  const data = await readApiResponse(response);
+  if (!response.ok) {
+    showError(data.detail || "That preference could not be saved.", "taste");
+    return;
+  }
+  button.parentElement.querySelectorAll("[data-feedback]").forEach((item) => {
+    item.setAttribute("aria-pressed", String(item === button));
+  });
+}
+
+async function loadAccountSession() {
+  try {
+    const response = await fetch("/api/account/session", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    if (response.ok) accountSession = await response.json();
+  } catch {
+    accountSession = { authenticated: false };
+  }
+  accountSessionLoaded = true;
+  const signedIn = Boolean(accountSession.authenticated);
+  byId("account-request-link").hidden = signedIn;
+  byId("account-login-link").hidden = signedIn;
+  byId("account-home-link").hidden = !signedIn;
+  if (signedIn) {
+    byId("account-home-link").textContent = `${accountSession.display_name} · My counter`;
+    byId("privacy-receipt-copy").innerHTML = "<strong>Your key remains request-local.</strong> Your Lite account saves taste notes, completed recommendations, and your feedback—but never the model key.";
+    byId("history-privacy-copy").textContent = "Your history and notes go to that provider for this request. Completed picks and your feedback are saved to your Lite account.";
+    if (accountSession.taste_profile) {
+      byId("profile").value = accountSession.taste_profile;
+      updateWordCount();
+    }
+  }
+}
+
+async function cancelActiveRequest() {
+  if (activeJobId) {
+    fetch(`/api/recommend/jobs/${encodeURIComponent(activeJobId)}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+      keepalive: true,
+    }).catch(() => {});
+  }
+  requestController?.abort();
 }
 
 function startOver() {
@@ -390,8 +494,12 @@ function bindEvents() {
   byId("mal_export_file").addEventListener("change", onMalFileSelected);
   byId("upload-clear").addEventListener("click", clearMalFile);
   byId("setup-form").addEventListener("submit", runRecommendations);
-  byId("cancel-request").addEventListener("click", () => requestController?.abort());
+  byId("cancel-request").addEventListener("click", cancelActiveRequest);
   byId("start-over").addEventListener("click", startOver);
+  byId("results-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-feedback]");
+    if (button) saveFeedback(button);
+  });
   byId("toggle-key").addEventListener("click", () => {
     const key = byId("api_key");
     const reveal = key.type === "password";
@@ -407,4 +515,5 @@ document.addEventListener("DOMContentLoaded", () => {
   updateSource();
   updateProfileState();
   showCourse("model", false);
+  loadAccountSession();
 });

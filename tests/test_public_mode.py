@@ -23,7 +23,8 @@ def test_public_mode_promotes_byok_and_keeps_plus_private(monkeypatch):
     assert response.status_code == 200
     assert "Cook my recommendation menu" in response.text
     assert "never written to disk, logs, cookies, or a database" in response.text
-    assert "Plus accounts are private and not currently open." in response.text
+    assert "Request a Lite account" in response.text
+    assert "Private Plus automation is not connected to this demo." in response.text
     assert "waitlist" not in response.text.lower()
     assert "Ollama" not in response.text
     assert "LM Studio" not in response.text

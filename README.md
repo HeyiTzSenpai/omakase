@@ -28,11 +28,22 @@ The result is a short tasting menu instead of an endless popularity feed. Each r
 
 ## Public counter
 
-The hosted site supports request-local keys for OpenAI, Anthropic, Gemini, DeepSeek, and OpenRouter. Choose the provider explicitly: DeepSeek and OpenAI keys can share the same `sk-` shape, so key text alone is not a safe provider signal. There is no Omakase account.
+The hosted site supports request-local keys for OpenAI, Anthropic, Gemini, DeepSeek, and OpenRouter. Both Quick and Deep model presets run as background jobs, so a slower reasoning model can finish without holding one proxy request open. Choose the provider explicitly: DeepSeek and OpenAI keys can share the same `sk-` shape, so key text alone is not a safe provider signal.
 
-Your provider key, history, and taste notes are used only for the current request by Omakase. They are not written to disk, logs, cookies, or a database. Your history and notes are sent to the provider you select so it can generate the menu. That provider's own data policy still applies.
+Guest menus remain request-local. The provider key, history, and taste notes are not written to disk, logs, cookies, or a database. Your history and notes are sent to the provider you select so it can generate the menu. That provider's own data policy still applies.
 
 The hosted counter accepts a public AniList username or a MyAnimeList XML export. Local model addresses are intentionally unavailable there because a public server cannot safely or honestly connect to a model running on your computer.
+
+### Omakase Lite accounts
+
+People can request recommendation-only access from the public counter. The owner reviews requests in a private inbox and shares a one-time, seven-day invitation. A Lite account adds:
+
+- saved recommendation history and a local My List;
+- Not Interested, Add to My List, and Already Watched feedback;
+- a saved taste note and feedback context for future menus;
+- no Plex, download, acquisition, or private Plus access.
+
+Lite saves completed recommendations, the account profile, and feedback in its own SQLite database. Provider keys and uploaded MAL files remain in memory only and are cleared when the job finishes. Passwords use Argon2id, sessions and invitations are stored only as hashes, mutating account requests require CSRF validation, and account/API responses are not browser-cached.
 
 ## Run it yourself
 
@@ -78,7 +89,7 @@ omakase recommend -u your-handle --llm-type gemini
 
 # DeepSeek
 export OMAKASE_API_KEY=your-key
-omakase recommend -u your-handle --llm-type deepseek --mode fast
+omakase recommend -u your-handle --llm-type deepseek --mode pro
 ```
 
 Supported backends include Ollama, LM Studio, OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Groq, and Together. Use `--model` to override a preset.
@@ -106,12 +117,31 @@ Omakase keeps its extension points small. Source adapters normalize watch histor
 | `omakase init` | Create a starter taste profile |
 | `omakase sources` | List available history sources |
 | `omakase backends` | List available model backends |
+| `omakase account-bootstrap` | Import an Argon2id hash for the Lite owner |
 
 Run `omakase recommend --help` for all options. See [CONTRIBUTING.md](CONTRIBUTING.md) for development and extension guidance.
 
+## Hosted deployment
+
+The base Compose stack persists Lite state in the `omakase_lite_data` volume and works without a notification service. Production can add redacted Discord access-request alerts with the secret overlay:
+
+```bash
+mkdir -p secrets
+# Write the webhook to secrets/access-discord-webhook without committing it.
+docker compose -f compose.yaml -f compose.production.yaml up -d --build
+```
+
+The Discord message contains only the request number, display name, and owner-inbox URL. Email, contact details, and notes stay in the Lite database. Bootstrap the owner by piping an existing Argon2id hash over standard input; the command never prints the hash:
+
+```bash
+docker compose exec -T omakase \
+  omakase account-bootstrap --email owner@example.com --password-hash-stdin \
+  < /secure/path/owner.argon2
+```
+
 ## Scope
 
-This public repository is the bring-your-own-key recommendation tool. Omakase Plus is a separate private experiment and is not connected to the hosted demo.
+This public repository is the bring-your-own-key recommendation tool plus its recommendation-only Lite accounts. Omakase Plus is a separate private system and is not connected to the hosted demo.
 
 ## License
 

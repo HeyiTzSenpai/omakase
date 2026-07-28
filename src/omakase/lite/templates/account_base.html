@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0710">
+  <title>{% block title %}Omakase Lite{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=Newsreader:opsz,wght@6..72,400;6..72,500&amp;display=swap">
+  <link rel="stylesheet" href="/static/account.css">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  {% if csrf_token %}<meta name="csrf-token" content="{{ csrf_token }}">{% endif %}
+  <script src="/static/account.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="account-nav">
+    <a class="wordmark" href="/">お任せ <span>Omakase</span></a>
+    <nav aria-label="Account">
+      <a href="/">New menu</a>
+      {% if user %}
+        <a href="/account">My counter</a>
+        {% if user.role == "admin" %}<a href="/account/admin/requests">Access requests</a>{% endif %}
+      {% else %}
+        <a href="/account/login">Sign in</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main id="main">{% block content %}{% endblock %}</main>
+</body>
+</html>

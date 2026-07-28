@@ -1,0 +1,39 @@
+{% extends "account_base.html" %}
+{% block title %}Request access · Omakase Lite{% endblock %}
+{% block content %}
+<section class="gate-layout">
+  <header class="gate-intro">
+    <p class="eyebrow">A seat at the counter</p>
+    <h1>Keep the menus that understand you.</h1>
+    <p>Lite accounts save recommendations, your personal taste notes, and the choices that help the next menu fit better.</p>
+    <ul class="quiet-list">
+      <li>Save picks to My List</li>
+      <li>Mark watched or not interested</li>
+      <li>No Plex or download access</li>
+      <li>Your model key is never saved</li>
+    </ul>
+  </header>
+  <div class="gate-form">
+    {% if submitted %}
+      <p class="eyebrow">Request received</p>
+      <h2>The owner will take a look.</h2>
+      <p>If this is a new request, it is now in the private approval inbox. You’ll receive a one-time account link through the contact route you provided.</p>
+      <a class="button-link" href="/">Make a guest menu</a>
+    {% else %}
+      <p class="eyebrow">Request access</p>
+      <h2>Tell us where to reach you.</h2>
+      {% if error %}<div class="form-error" role="alert">{{ error }}</div>{% endif %}
+      <form method="post" action="/account/request">
+        <label>Email <input type="email" name="email" autocomplete="email" required maxlength="254"></label>
+        <label>Name <input name="display_name" autocomplete="name" required maxlength="80"></label>
+        <label>Discord or contact <input name="contact" autocomplete="off" maxlength="120" placeholder="@name or preferred contact"></label>
+        <label>Short note <textarea name="note" rows="4" maxlength="1000" placeholder="How do you know the owner?"></textarea></label>
+        <label class="honeypot" aria-hidden="true">Website <input name="website" tabindex="-1" autocomplete="off"></label>
+        <p class="privacy-note">Your email and note stay in the private Omakase database. The Discord alert contains only your display name and a link for the owner.</p>
+        <button type="submit">Request a seat <span aria-hidden="true">→</span></button>
+      </form>
+      <p class="form-foot">Already invited? <a href="/account/login">Sign in</a></p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -26,7 +26,7 @@ def _mock_client():
     "model,expected_max_tokens",
     [
         ("deepseek-v4-flash", 8192),
-        ("deepseek-v4-pro", 4096),
+        ("deepseek-v4-pro", 8192),
     ],
 )
 def test_current_deepseek_models_receive_a_complete_json_output_budget(
