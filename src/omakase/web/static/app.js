@@ -22,6 +22,13 @@ const PROVIDERS = {
     pro: "gemini-2.5-pro",
     hint: "Use a Gemini API key from Google AI Studio.",
   },
+  deepseek: {
+    label: "DeepSeek",
+    url: "https://api.deepseek.com",
+    fast: "deepseek-v4-flash",
+    pro: "deepseek-v4-pro",
+    hint: "Use a key from the DeepSeek Platform.",
+  },
   openrouter: {
     label: "OpenRouter",
     url: "https://openrouter.ai/api",

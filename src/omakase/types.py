@@ -102,8 +102,8 @@ MODEL_PRESETS: dict[str, dict[str, str]] = {
     "gemini-fast": {"model": "gemini-2.5-flash", "supports_json": "true"},
     "gemini-pro": {"model": "gemini-2.5-pro", "supports_json": "true"},
     # DeepSeek
-    "deepseek-fast": {"model": "deepseek-chat", "supports_json": "false"},
-    "deepseek-pro": {"model": "deepseek-reasoner", "supports_json": "false"},
+    "deepseek-fast": {"model": "deepseek-v4-flash", "supports_json": "true"},
+    "deepseek-pro": {"model": "deepseek-v4-pro", "supports_json": "true"},
     # Aggregators (OpenAI-compatible)
     "openrouter-fast": {"model": "openai/gpt-4o-mini", "supports_json": "true"},
     "openrouter-pro": {"model": "anthropic/claude-sonnet-4.6", "supports_json": "false"},

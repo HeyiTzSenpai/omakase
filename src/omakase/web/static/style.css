@@ -423,6 +423,10 @@ fieldset > legend,
   cursor: pointer;
 }
 
+.choice-grid--providers .choice-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 .choice-card:hover {
   background: var(--surface-raised);
 }

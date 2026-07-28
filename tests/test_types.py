@@ -18,8 +18,8 @@ OLLAMA_DEFAULT = "http://localhost:11434"
         ("anthropic", "pro", False),
         ("gemini", "fast", True),
         ("gemini", "pro", True),
-        ("deepseek", "fast", False),
-        ("deepseek", "pro", False),
+        ("deepseek", "fast", True),
+        ("deepseek", "pro", True),
         ("openai", "fast", True),
         ("openrouter", "fast", True),
         ("openrouter", "pro", False),
@@ -45,6 +45,28 @@ def test_resolver_keeps_custom_url():
 def test_resolver_substitutes_preset_model_when_default_passed():
     _, _, model, _ = resolve_model_preset(OLLAMA_DEFAULT, "anthropic", "qwen2.5:7b", "fast")
     assert model == MODEL_PRESETS["anthropic-fast"]["model"]
+
+
+@pytest.mark.parametrize(
+    "mode,expected_model",
+    [
+        ("fast", "deepseek-v4-flash"),
+        ("pro", "deepseek-v4-pro"),
+    ],
+)
+def test_resolver_uses_current_deepseek_models(mode, expected_model):
+    url, llm_type, model, supports_json = resolve_model_preset(
+        OLLAMA_DEFAULT,
+        "deepseek",
+        "qwen2.5:7b",
+        mode,
+    )
+    assert (url, llm_type, model, supports_json) == (
+        "https://api.deepseek.com",
+        "deepseek",
+        expected_model,
+        True,
+    )
 
 
 def test_resolver_keeps_user_model_when_explicit():

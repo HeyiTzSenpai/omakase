@@ -26,6 +26,9 @@ _API_KEY_ENV_VARS = (
     "TOGETHER_API_KEY",
 )
 
+_DEFAULT_MAX_TOKENS = 8192
+_DEEPSEEK_REASONING_MAX_TOKENS = 32768
+
 
 def _discover_api_key() -> str:
     for var in _API_KEY_ENV_VARS:
@@ -41,6 +44,16 @@ class OpenAILLM(BaseLLM):
     def __init__(self, url: str, model: str, api_key: str | None = None):
         super().__init__(url, model, api_key or _discover_api_key())
 
+    def _max_tokens(self) -> int:
+        url = self.url.rstrip("/").lower()
+        model = self.model.lower()
+        if url == "https://api.deepseek.com" and model in {
+            "deepseek-reasoner",
+            "deepseek-v4-pro",
+        }:
+            return _DEEPSEEK_REASONING_MAX_TOKENS
+        return _DEFAULT_MAX_TOKENS
+
     def generate(
         self,
         prompt: str,
@@ -52,7 +65,7 @@ class OpenAILLM(BaseLLM):
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": 4096 if supports_json else 8192,
+            "max_tokens": self._max_tokens(),
         }
         if supports_json:
             payload["response_format"] = {"type": "json_object"}

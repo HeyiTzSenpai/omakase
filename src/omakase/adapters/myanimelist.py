@@ -26,6 +26,8 @@ import xml.etree.ElementTree as ET
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import httpx
+
 from omakase.adapters.base import SourceAdapter, register
 from omakase.types import MediaItem, SourceData
 
@@ -33,6 +35,12 @@ USER_AGENT = "Omakase/0.1 (homelab; +https://github.com/HeyiTzSenpai/omakase)"
 
 MAL_API = "https://api.myanimelist.net/v2"
 JIKAN_API = "https://api.jikan.moe/v4"
+_JIKAN_ATTEMPTS = 3
+_JIKAN_RETRYABLE_STATUS = {429, 502, 503, 504}
+
+
+class CandidateSourceError(RuntimeError):
+    """The unauthenticated recommendation catalog could not be fetched."""
 
 
 def _get_mal_client_id(client_id: str | None = None) -> str:
@@ -55,9 +63,42 @@ def _mal_headers(client_id: str | None = None) -> dict[str, str]:
 
 
 def _jikan_fetch(endpoint: str) -> dict:
-    req = Request(f"{JIKAN_API}{endpoint}", headers={"User-Agent": USER_AGENT})
-    with urlopen(req) as resp:
-        return json.loads(resp.read().decode())
+    url = f"{JIKAN_API}{endpoint}"
+    last_error: Exception | None = None
+    for attempt in range(1, _JIKAN_ATTEMPTS + 1):
+        try:
+            response = httpx.get(
+                url,
+                headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+                timeout=20,
+            )
+            if response.status_code < 400:
+                try:
+                    return response.json()
+                except ValueError as exc:
+                    last_error = exc
+            elif response.status_code in _JIKAN_RETRYABLE_STATUS:
+                last_error = httpx.HTTPStatusError(
+                    f"Jikan returned HTTP {response.status_code}",
+                    request=response.request,
+                    response=response,
+                )
+            else:
+                last_error = httpx.HTTPStatusError(
+                    f"Jikan returned HTTP {response.status_code}",
+                    request=response.request,
+                    response=response,
+                )
+                break
+        except httpx.RequestError as exc:
+            last_error = exc
+
+        if attempt < _JIKAN_ATTEMPTS:
+            time.sleep(0.5 * attempt)
+
+    raise CandidateSourceError(
+        "The candidate anime catalog is temporarily unavailable. Try again in a moment."
+    ) from last_error
 
 
 def _mal_fetch(endpoint: str, client_id: str | None = None) -> dict:
@@ -271,10 +312,7 @@ class MALAdapter(SourceAdapter):
         items: list[MediaItem] = []
         page = 1
         while len(items) < pool_size:
-            try:
-                data = _jikan_fetch(f"/top/anime?page={page}&limit=25")
-            except HTTPError:
-                break
+            data = _jikan_fetch(f"/top/anime?page={page}&limit=25")
             media_list = data.get("data", [])
             if not media_list:
                 break

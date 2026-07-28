@@ -5,8 +5,10 @@ from __future__ import annotations
 import gzip
 from unittest.mock import patch
 
+import httpx
 import pytest
 
+from omakase.adapters import myanimelist
 from omakase.adapters.myanimelist import MALAdapter, MALExportError, parse_mal_export
 
 _SAMPLE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -129,3 +131,79 @@ def test_mal_adapter_export_username_override():
     with patch.object(adapter, "_fetch_candidates_jikan", return_value=[]):
         data = adapter.fetch("OverrideName", export_data=_SAMPLE_XML)
     assert data.username == "OverrideName"
+
+
+def test_jikan_fetch_retries_a_transient_gateway_failure_with_httpx(monkeypatch):
+    """Catch the live failure where urllib got 504 while httpx got a usable catalog."""
+    url = "https://api.jikan.moe/v4/top/anime?page=1&limit=25"
+    responses = [
+        httpx.Response(
+            504,
+            request=httpx.Request("GET", url),
+            json={"status": 504, "message": "Jikan failed to connect to MyAnimeList"},
+        ),
+        httpx.Response(
+            200,
+            request=httpx.Request("GET", url),
+            json={"data": [{"mal_id": 52991, "title": "Frieren"}]},
+        ),
+    ]
+    calls: list[str] = []
+
+    def fake_get(request_url, **_kwargs):
+        calls.append(request_url)
+        return responses.pop(0)
+
+    monkeypatch.setattr(myanimelist.httpx, "get", fake_get)
+    monkeypatch.setattr(
+        myanimelist,
+        "urlopen",
+        lambda _request: (_ for _ in ()).throw(AssertionError("legacy urllib path used")),
+    )
+    monkeypatch.setattr(myanimelist.time, "sleep", lambda _seconds: None)
+
+    payload = myanimelist._jikan_fetch("/top/anime?page=1&limit=25")
+
+    assert payload == {"data": [{"mal_id": 52991, "title": "Frieren"}]}
+    assert calls == [url, url]
+
+
+def test_jikan_fetch_reports_an_actionable_error_after_bounded_retries(monkeypatch):
+    def gateway_timeout(request_url, **_kwargs):
+        return httpx.Response(
+            504,
+            request=httpx.Request("GET", request_url),
+            json={"status": 504, "message": "Jikan failed to connect to MyAnimeList"},
+        )
+
+    monkeypatch.setattr(myanimelist.httpx, "get", gateway_timeout)
+    monkeypatch.setattr(
+        myanimelist,
+        "urlopen",
+        lambda _request: (_ for _ in ()).throw(AssertionError("legacy urllib path used")),
+    )
+    monkeypatch.setattr(myanimelist.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(RuntimeError, match="anime catalog"):
+        myanimelist._jikan_fetch("/top/anime?page=1&limit=25")
+
+
+def test_jikan_fetch_redacts_a_non_retryable_upstream_response(monkeypatch):
+    calls = 0
+
+    def forbidden(request_url, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            403,
+            request=httpx.Request("GET", request_url),
+            text="upstream implementation detail",
+        )
+
+    monkeypatch.setattr(myanimelist.httpx, "get", forbidden)
+
+    with pytest.raises(RuntimeError, match="anime catalog") as exc:
+        myanimelist._jikan_fetch("/top/anime?page=1&limit=25")
+
+    assert calls == 1
+    assert "implementation detail" not in str(exc.value)

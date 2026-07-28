@@ -28,7 +28,7 @@ The result is a short tasting menu instead of an endless popularity feed. Each r
 
 ## Public counter
 
-The hosted site supports request-local keys for OpenAI, Anthropic, Gemini, and OpenRouter. There is no Omakase account.
+The hosted site supports request-local keys for OpenAI, Anthropic, Gemini, DeepSeek, and OpenRouter. Choose the provider explicitly: DeepSeek and OpenAI keys can share the same `sk-` shape, so key text alone is not a safe provider signal. There is no Omakase account.
 
 Your provider key, history, and taste notes are used only for the current request by Omakase. They are not written to disk, logs, cookies, or a database. Your history and notes are sent to the provider you select so it can generate the menu. That provider's own data policy still applies.
 
@@ -75,6 +75,10 @@ omakase recommend -u your-handle --llm-type anthropic --mode pro
 # Gemini
 export OMAKASE_API_KEY=your-key
 omakase recommend -u your-handle --llm-type gemini
+
+# DeepSeek
+export OMAKASE_API_KEY=your-key
+omakase recommend -u your-handle --llm-type deepseek --mode fast
 ```
 
 Supported backends include Ollama, LM Studio, OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Groq, and Together. Use `--model` to override a preset.

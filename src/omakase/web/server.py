@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from omakase import __version__
 from omakase.adapters.base import list_sources
-from omakase.adapters.myanimelist import MALExportError
+from omakase.adapters.myanimelist import CandidateSourceError, MALExportError
 from omakase.engine import EmptyHistoryError
 from omakase.engine import run as run_pipeline
 from omakase.llm import list_backends
@@ -34,6 +34,7 @@ _HOSTED_PROVIDERS = {
     "openai": DEFAULT_URLS["openai"],
     "anthropic": DEFAULT_URLS["anthropic"],
     "gemini": DEFAULT_URLS["gemini"],
+    "deepseek": DEFAULT_URLS["deepseek"],
     "openrouter": DEFAULT_URLS["openrouter"],
 }
 
@@ -245,6 +246,8 @@ async def recommend(req: RecommendRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except EmptyHistoryError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except CandidateSourceError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except httpx.ConnectError:
         raise HTTPException(
             status_code=502,
@@ -386,26 +389,25 @@ def _escape_html(text: str) -> str:
 def _friendly_llm_error(e: httpx.HTTPStatusError, llm_type: str, model: str) -> str:
     """Translate a raw LLM HTTP error into a message the visitor can act on."""
     code = e.response.status_code
+    provider = "DeepSeek" if llm_type == "deepseek" else llm_type.title()
     if code in (401, 403):
         return (
-            f"{llm_type.title()} rejected your API key. "
+            f"{provider} rejected your API key. "
             "Double-check the key you pasted, or that it has access to this model."
         )
     if code == 404:
         return (
-            f"{llm_type.title()} doesn't recognize the model '{model}'. "
+            f"{provider} doesn't recognize the model '{model}'. "
             "Try a different model or switch the Fast/Pro toggle."
         )
     if code == 429:
         return (
-            f"{llm_type.title()} rate-limited your key. Wait a minute, "
+            f"{provider} rate-limited your key. Wait a minute, "
             "or try a different backend / your own paid key."
         )
     if code >= 500:
-        return (
-            f"{llm_type.title()} is having issues right now (HTTP {code}). Try again in a moment."
-        )
-    return f"{llm_type.title()} could not complete the request (HTTP {code})."
+        return f"{provider} is having issues right now (HTTP {code}). Try again in a moment."
+    return f"{provider} could not complete the request (HTTP {code})."
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8765):

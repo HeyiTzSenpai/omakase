@@ -4,6 +4,7 @@ import os
 
 from fastapi.testclient import TestClient
 
+from omakase.adapters import myanimelist
 from omakase.types import Recommendation
 from omakase.web import server
 
@@ -73,6 +74,45 @@ def test_hosted_demo_rejects_local_and_custom_provider_urls(monkeypatch):
     response = client.post("/api/recommend", json=custom_payload)
     assert response.status_code == 400
     assert "official provider endpoint" in response.json()["detail"]
+
+
+def test_hosted_demo_accepts_official_deepseek_provider(monkeypatch):
+    client = _client(monkeypatch)
+    captured = {}
+
+    def fake_run(cfg):
+        captured["cfg"] = cfg
+        return []
+
+    monkeypatch.setattr(server, "run_pipeline", fake_run)
+    payload = _valid_payload() | {
+        "llm_type": "deepseek",
+        "llm_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash",
+    }
+
+    response = client.post("/api/recommend", json=payload)
+
+    assert response.status_code == 200
+    cfg = captured["cfg"]
+    assert cfg.llm_type == "deepseek"
+    assert cfg.llm_url == "https://api.deepseek.com"
+    assert cfg.model == "deepseek-v4-flash"
+    assert cfg.supports_json_mode is True
+
+
+def test_candidate_catalog_failure_is_retryable_and_does_not_blame_the_key(monkeypatch):
+    client = _client(monkeypatch)
+
+    def fail(_cfg):
+        raise myanimelist.CandidateSourceError("candidate anime catalog unavailable")
+
+    monkeypatch.setattr(server, "run_pipeline", fail)
+    response = client.post("/api/recommend", json=_valid_payload())
+
+    assert response.status_code == 503
+    assert "candidate anime catalog" in response.json()["detail"]
+    assert "key" not in response.json()["detail"].lower()
 
 
 def test_hosted_mal_requires_an_export_instead_of_shared_credentials(monkeypatch):

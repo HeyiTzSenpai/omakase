@@ -27,6 +27,7 @@ def test_public_mode_promotes_byok_and_keeps_plus_private(monkeypatch):
     assert "waitlist" not in response.text.lower()
     assert "Ollama" not in response.text
     assert "LM Studio" not in response.text
+    assert "DeepSeek" in response.text
     assert "—" not in response.text
 
 
