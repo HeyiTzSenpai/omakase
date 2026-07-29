@@ -15,11 +15,15 @@ test("detects only a saved key for the selected provider", () => {
   assert.equal(state.hasSavedProviderKey({ authenticated: false }, "deepseek"), false);
 });
 
-test("builds strict feedback payloads and requires a watched score", () => {
+test("builds strict feedback payloads for completed scores and episode progress", () => {
   assert.deepEqual(state.feedbackPayload("saved"), { state: "saved" });
   assert.deepEqual(state.feedbackPayload("watched", "8"), {
     state: "watched",
     watched_score: 8,
+  });
+  assert.deepEqual(state.feedbackPayload("watching", null, "4"), {
+    state: "watching",
+    watched_episodes: 4,
   });
   assert.throws(
     () => state.feedbackPayload("watched", ""),
@@ -28,6 +32,18 @@ test("builds strict feedback payloads and requires a watched score", () => {
   assert.throws(
     () => state.feedbackPayload("watched", "11"),
     /score from 1 to 10/,
+  );
+  assert.throws(
+    () => state.feedbackPayload("watching", null, ""),
+    /positive whole number/,
+  );
+  assert.throws(
+    () => state.feedbackPayload("watching", null, "1.5"),
+    /positive whole number/,
+  );
+  assert.throws(
+    () => state.feedbackPayload("watching", null, "0"),
+    /positive whole number/,
   );
 });
 
@@ -45,18 +61,33 @@ test("writes clear feedback confirmations", () => {
     "Saved in Omakase with your 9/10 score. Future menus will use it.",
   );
   assert.equal(
-    state.feedbackConfirmation("watched", 9, {
+    state.feedbackConfirmation("watched", 9, null, {
       state: "synced",
       detail: "Added to Friend’s AniList as Completed · 9/10.",
     }),
     "Added to Friend’s AniList as Completed · 9/10.",
   );
   assert.equal(
-    state.feedbackConfirmation("watched", 9, {
+    state.feedbackConfirmation("watched", 9, null, {
       state: "connection_required",
       detail: "Connect AniList to add this title and score to your anime list.",
     }),
     "Saved in Omakase with your 9/10 score. Connect AniList to add this title and score to your anime list.",
+  );
+  assert.equal(
+    state.feedbackConfirmation("watching", null, 4),
+    "Saved in Omakase at 4 episodes. Future menus will use it.",
+  );
+  assert.equal(
+    state.feedbackConfirmation("watching", null, 4, {
+      state: "connection_required",
+      detail: "Connect AniList to sync 4 watched episodes to your anime list.",
+    }),
+    "Saved in Omakase at 4 episodes. Connect AniList to sync 4 watched episodes to your anime list.",
+  );
+  assert.equal(
+    state.feedbackConfirmation("watching", null, 1),
+    "Saved in Omakase at 1 episode. Future menus will use it.",
   );
 });
 

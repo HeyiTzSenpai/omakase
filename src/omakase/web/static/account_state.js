@@ -15,7 +15,13 @@
   ]);
   const MODES = new Set(["fast", "pro"]);
   const SOURCES = new Set(["anilist", "myanimelist"]);
-  const FEEDBACK_STATES = new Set(["neutral", "not_interested", "saved", "watched"]);
+  const FEEDBACK_STATES = new Set([
+    "neutral",
+    "not_interested",
+    "saved",
+    "watching",
+    "watched",
+  ]);
 
   function hasSavedProviderKey(session, provider) {
     return Boolean(
@@ -25,17 +31,31 @@
     );
   }
 
-  function feedbackPayload(state, watchedScore = null) {
+  function feedbackPayload(state, watchedScore = null, watchedEpisodes = null) {
     if (!FEEDBACK_STATES.has(state)) throw new Error("Choose a valid preference.");
-    if (state !== "watched") return { state };
-    const score = Number(watchedScore);
-    if (!Number.isInteger(score) || score < 1 || score > 10) {
-      throw new Error("Already watched needs a score from 1 to 10.");
+    if (state === "watched") {
+      const score = Number(watchedScore);
+      if (!Number.isInteger(score) || score < 1 || score > 10) {
+        throw new Error("Already watched needs a score from 1 to 10.");
+      }
+      return { state, watched_score: score };
     }
-    return { state, watched_score: score };
+    if (state === "watching") {
+      const episodes = Number(watchedEpisodes);
+      if (!Number.isInteger(episodes) || episodes < 1) {
+        throw new Error("Watching needs a positive whole number of episodes.");
+      }
+      return { state, watched_episodes: episodes };
+    }
+    return { state };
   }
 
-  function feedbackConfirmation(state, watchedScore = null, trackerSync = null) {
+  function feedbackConfirmation(
+    state,
+    watchedScore = null,
+    watchedEpisodes = null,
+    trackerSync = null,
+  ) {
     if (state === "not_interested") {
       return "Not interested saved. This title will stay out of future menus.";
     }
@@ -51,6 +71,21 @@
         return trackerSync.detail;
       }
       const local = `Saved in Omakase with your ${Number(watchedScore)}/10 score.`;
+      if (trackerSync && typeof trackerSync.detail === "string") {
+        return `${local} ${trackerSync.detail}`;
+      }
+      return `${local} Future menus will use it.`;
+    }
+    if (state === "watching") {
+      if (
+        trackerSync
+        && trackerSync.state === "synced"
+        && typeof trackerSync.detail === "string"
+      ) {
+        return trackerSync.detail;
+      }
+      const episodeLabel = Number(watchedEpisodes) === 1 ? "episode" : "episodes";
+      const local = `Saved in Omakase at ${Number(watchedEpisodes)} ${episodeLabel}.`;
       if (trackerSync && typeof trackerSync.detail === "string") {
         return `${local} ${trackerSync.detail}`;
       }

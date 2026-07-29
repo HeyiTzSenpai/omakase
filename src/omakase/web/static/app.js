@@ -66,6 +66,7 @@ let activeJobId = "";
 let accountSession = { authenticated: false };
 let accountSessionLoaded = false;
 let pendingWatchedButton = null;
+let pendingWatchingButton = null;
 
 const byId = (id) => document.getElementById(id);
 
@@ -462,9 +463,16 @@ function displayResults(data) {
         const actions = document.createElement("div");
         actions.className = "recommendation__actions";
         actions.setAttribute("aria-label", `Feedback for ${recommendation.title}`);
+        const feedbackState = (
+          recommendation.feedback_state === "watched"
+          && recommendation.watch_status === "current"
+        )
+          ? "watching"
+          : recommendation.feedback_state;
         [
           ["not_interested", "Not interested"],
           ["saved", "Add to My List"],
+          ["watching", "Watching"],
           ["watched", "Already watched"],
         ].forEach(([state, label]) => {
           const button = createText("button", "recommendation__feedback", label);
@@ -473,10 +481,18 @@ function displayResults(data) {
           button.dataset.recommendationId = recommendation.id;
           button.dataset.recommendationTitle = recommendation.title;
           button.dataset.defaultLabel = label;
-          button.setAttribute("aria-pressed", String(recommendation.feedback_state === state));
+          button.setAttribute("aria-pressed", String(feedbackState === state));
+          if (
+            state === "watching"
+            && feedbackState === state
+            && recommendation.watched_episodes
+          ) {
+            button.textContent = `Watching · ${recommendation.watched_episodes} ep`;
+            button.dataset.watchedEpisodes = recommendation.watched_episodes;
+          }
           if (
             state === "watched"
-            && recommendation.feedback_state === state
+            && feedbackState === state
             && recommendation.watched_score
           ) {
             button.textContent = `Watched · ${recommendation.watched_score}/10`;
@@ -498,7 +514,10 @@ function displayResults(data) {
   results.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
-async function saveFeedback(button, watchedScore = null) {
+async function saveFeedback(
+  button,
+  { watchedScore = null, watchedEpisodes = null } = {},
+) {
   if (!accountSession.authenticated) return;
   const state = button.dataset.feedback;
   const actions = button.closest(".recommendation__actions");
@@ -506,7 +525,7 @@ async function saveFeedback(button, watchedScore = null) {
   const buttons = actions.querySelectorAll("[data-feedback]");
   let payload;
   try {
-    payload = accountState.feedbackPayload(state, watchedScore);
+    payload = accountState.feedbackPayload(state, watchedScore, watchedEpisodes);
   } catch (error) {
     status.textContent = error.message;
     return false;
@@ -529,7 +548,12 @@ async function saveFeedback(button, watchedScore = null) {
       item.setAttribute("aria-pressed", String(item === button));
       item.textContent = item.dataset.defaultLabel;
       delete item.dataset.watchedScore;
+      delete item.dataset.watchedEpisodes;
     });
+    if (state === "watching") {
+      button.textContent = `Watching · ${data.watched_episodes} ep`;
+      button.dataset.watchedEpisodes = data.watched_episodes;
+    }
     if (state === "watched") {
       button.textContent = `Watched · ${data.watched_score}/10`;
       button.dataset.watchedScore = data.watched_score;
@@ -537,6 +561,7 @@ async function saveFeedback(button, watchedScore = null) {
     status.textContent = accountState.feedbackConfirmation(
       data.state,
       data.watched_score,
+      data.watched_episodes,
       data.tracker_sync,
     );
     return true;
@@ -593,9 +618,9 @@ async function loadAccountSession(applySetup = true) {
     byId("account-home-link").textContent = `${accountSession.display_name} · My counter`;
     setPrivacyReceipt(
       "Encrypted for your account.",
-      "Your Lite account remembers provider keys, taste notes, completed recommendations, and feedback. A key is decrypted only for a request to its provider.",
+      "Your Lite account remembers provider keys, taste notes, recommendation progress, and feedback. A key is decrypted only for a request to its provider.",
     );
-    byId("history-privacy-copy").textContent = "Your history and notes go to that provider for this request. Completed picks, scores, and feedback are saved to your Lite account.";
+    byId("history-privacy-copy").textContent = "Your history and notes go to that provider for this request. Saved picks, episode progress, scores, and feedback are kept in your Lite account.";
     if (accountSession.taste_profile) {
       byId("profile").value = accountSession.taste_profile;
       updateWordCount();
@@ -660,7 +685,7 @@ async function submitWatchedScore(event) {
     dialogError.hidden = false;
     return;
   }
-  const saved = await saveFeedback(pendingWatchedButton, score);
+  const saved = await saveFeedback(pendingWatchedButton, { watchedScore: score });
   if (saved) {
     byId("watched-dialog").close();
     pendingWatchedButton.focus();
@@ -678,6 +703,52 @@ function closeWatchedDialog() {
   byId("watched-dialog").close();
   pendingWatchedButton?.focus();
   pendingWatchedButton = null;
+}
+
+function openWatchingDialog(button) {
+  pendingWatchingButton = button;
+  const dialog = byId("watching-dialog");
+  byId("watching-dialog-title").textContent = `How far are you into ${button.dataset.recommendationTitle}?`;
+  byId("watching-dialog-error").hidden = true;
+  byId("watching-progress-form").reset();
+  const episodes = byId("watched-episodes");
+  episodes.value = button.dataset.watchedEpisodes || "";
+  dialog.showModal();
+  episodes.focus();
+}
+
+async function submitWatchingProgress(event) {
+  event.preventDefault();
+  if (!pendingWatchingButton) return;
+  const episodes = byId("watched-episodes").value;
+  const dialogError = byId("watching-dialog-error");
+  try {
+    accountState.feedbackPayload("watching", null, episodes);
+  } catch (error) {
+    dialogError.textContent = error.message;
+    dialogError.hidden = false;
+    return;
+  }
+  const saved = await saveFeedback(pendingWatchingButton, {
+    watchedEpisodes: episodes,
+  });
+  if (saved) {
+    byId("watching-dialog").close();
+    pendingWatchingButton.focus();
+    pendingWatchingButton = null;
+  } else {
+    const cardStatus = pendingWatchingButton
+      .closest(".recommendation__actions")
+      ?.querySelector(".recommendation__feedback-status");
+    dialogError.textContent = cardStatus?.textContent || "That progress could not be saved.";
+    dialogError.hidden = false;
+  }
+}
+
+function closeWatchingDialog() {
+  byId("watching-dialog").close();
+  pendingWatchingButton?.focus();
+  pendingWatchingButton = null;
 }
 
 function bindEvents() {
@@ -704,12 +775,18 @@ function bindEvents() {
     const button = event.target.closest("[data-feedback]");
     if (!button) return;
     if (button.dataset.feedback === "watched") openWatchedDialog(button);
+    else if (button.dataset.feedback === "watching") openWatchingDialog(button);
     else saveFeedback(button);
   });
   byId("watched-score-form").addEventListener("submit", submitWatchedScore);
   byId("cancel-watched-score").addEventListener("click", closeWatchedDialog);
   byId("watched-dialog").addEventListener("cancel", () => {
     pendingWatchedButton = null;
+  });
+  byId("watching-progress-form").addEventListener("submit", submitWatchingProgress);
+  byId("cancel-watching-progress").addEventListener("click", closeWatchingDialog);
+  byId("watching-dialog").addEventListener("cancel", () => {
+    pendingWatchingButton = null;
   });
   byId("toggle-key").addEventListener("click", () => {
     const key = byId("api_key");
