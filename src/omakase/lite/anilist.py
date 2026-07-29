@@ -154,3 +154,64 @@ def save_completed_entry(
     ):
         raise AniListWriteError("AniList returned an invalid watched-list receipt.")
     return entry
+
+
+def save_current_entry(
+    access_token: str,
+    media_id: int,
+    *,
+    progress: int,
+) -> dict[str, object]:
+    if isinstance(media_id, bool) or not isinstance(media_id, int) or media_id <= 0:
+        raise ValueError("AniList media ID must be a positive integer.")
+    if isinstance(progress, bool) or not isinstance(progress, int) or progress <= 0:
+        raise ValueError("AniList progress must be a positive whole number of episodes.")
+    mutation = """
+    mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int) {
+      SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress) {
+        id
+        mediaId
+        status
+        progress
+      }
+    }
+    """
+    with httpx.Client(timeout=15, follow_redirects=False) as client:
+        response = client.post(
+            API_URL,
+            json={
+                "query": mutation,
+                "variables": {
+                    "mediaId": media_id,
+                    "status": "CURRENT",
+                    "progress": progress,
+                },
+            },
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": USER_AGENT,
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+    errors = payload.get("errors") if isinstance(payload, dict) else None
+    entry = (
+        (payload.get("data") or {}).get("SaveMediaListEntry") if isinstance(payload, dict) else None
+    )
+    returned_progress = entry.get("progress") if isinstance(entry, dict) else None
+    if errors or not isinstance(entry, dict):
+        raise AniListWriteError("AniList refused the progress update.")
+    if (
+        isinstance(entry.get("id"), bool)
+        or not isinstance(entry.get("id"), int)
+        or entry["id"] <= 0
+        or entry.get("mediaId") != media_id
+        or entry.get("status") != "CURRENT"
+        or isinstance(returned_progress, bool)
+        or not isinstance(returned_progress, int)
+        or returned_progress != progress
+    ):
+        raise AniListWriteError("AniList returned an invalid progress receipt.")
+    return entry
