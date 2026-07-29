@@ -63,6 +63,10 @@ requiring an empty secret file. On a root-managed Linux host, give that secret
 the same owner, group, and non-world-readable mode as the existing Lite keyring
 so the unprivileged container process can read it.
 
+Set `OMAKASE_SOURCE_COMMIT` to the exact 40-character Git commit for every
+build and deploy. The image label and `/api/health` expose that value so the
+running public artifact can be checked against its source.
+
 ## Run it yourself
 
 Self-hosting unlocks local Ollama, LM Studio, and OpenWebUI instances as well as the supported cloud providers.
