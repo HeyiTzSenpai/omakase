@@ -59,7 +59,9 @@ then stores AniList's returned list-entry receipt.
 For Docker Compose, include `compose.anilist.yaml` alongside `compose.yaml` and
 `compose.production.yaml` after creating `secrets/anilist-client-secret`. The
 separate overlay keeps deployments that do not use AniList synchronization from
-requiring an empty secret file.
+requiring an empty secret file. On a root-managed Linux host, give that secret
+the same owner, group, and non-world-readable mode as the existing Lite keyring
+so the unprivileged container process can read it.
 
 ## Run it yourself
 
