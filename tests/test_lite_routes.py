@@ -658,6 +658,32 @@ def test_anilist_callback_syncs_existing_matching_watched_scores(
         state="watched",
         watched_score=8,
     )
+    _, watching = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="OwnerOnAniList",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        mode="pro",
+        recommendations=[
+            Recommendation(
+                title="Frieren",
+                predicted_score=9.4,
+                reasoning="Patient fantasy drama.",
+                best_match_from_history="Mushishi",
+                url="https://anilist.co/anime/154587/Frieren/",
+                source="anilist",
+            )
+        ],
+    )
+    db.set_recommendation_feedback(
+        conn,
+        user_id=user_id,
+        recommendation_id=watching[0]["id"],
+        state="watching",
+        watched_episodes=5,
+    )
     conn.close()
     _login(client, "owner@example.com", "owner-password")
     started = client.get(
@@ -687,13 +713,29 @@ def test_anilist_callback_syncs_existing_matching_watched_scores(
         }
 
     monkeypatch.setattr(anilist, "save_completed_entry", save_completed_entry)
+
+    def save_current_entry(access_token, media_id, *, progress):
+        if (access_token, media_id, progress) != (
+            "one-year-access-token",
+            154587,
+            5,
+        ):
+            raise AssertionError("pending AniList progress sync received the wrong row")
+        return {
+            "id": 78,
+            "mediaId": 154587,
+            "status": "CURRENT",
+            "progress": 5,
+        }
+
+    monkeypatch.setattr(anilist, "save_current_entry", save_current_entry)
     callback = client.get(
         f"/account/integrations/anilist/callback?code=one-time-code&state={state}",
         follow_redirects=False,
     )
 
     assert callback.status_code == 302
-    assert callback.headers["location"] == "/account?anilist=connected&synced=1"
+    assert callback.headers["location"] == "/account?anilist=connected&synced=2"
     conn = db.connect(tmp_path)
     row = conn.execute(
         """
@@ -706,6 +748,17 @@ def test_anilist_callback_syncs_existing_matching_watched_scores(
     assert row["tracker_sync_state"] == "synced"
     assert row["tracker_remote_entry_id"] == 77
     assert row["tracker_synced_at"]
+    progress_row = conn.execute(
+        """
+        SELECT tracker_sync_state, tracker_remote_entry_id, tracker_synced_at
+          FROM account_recommendations
+         WHERE id = ?
+        """,
+        (watching[0]["id"],),
+    ).fetchone()
+    assert progress_row["tracker_sync_state"] == "synced"
+    assert progress_row["tracker_remote_entry_id"] == 78
+    assert progress_row["tracker_synced_at"]
     conn.close()
 
 
@@ -799,6 +852,7 @@ def test_watched_feedback_route_requires_anilist_connection_and_lists_score(
         "ok": True,
         "state": "watched",
         "watched_score": 8,
+        "watched_episodes": None,
         "tracker_sync": {
             "state": "connection_required",
             "detail": "Connect AniList to add this title and score to your anime list.",
@@ -823,7 +877,115 @@ def test_watched_feedback_route_requires_anilist_connection_and_lists_score(
         "ok": True,
         "state": "not_interested",
         "watched_score": None,
+        "watched_episodes": None,
     }
+
+
+def test_watching_feedback_route_saves_progress_before_anilist_connection(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    user_id = _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="owner",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        mode="pro",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.1,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+                url="https://anilist.co/anime/99088/Pluto/",
+                source="anilist",
+            )
+        ],
+    )
+    conn.close()
+    _login(client, "owner@example.com", "owner-password")
+    session = client.get("/api/account/session").json()
+    endpoint = f"/api/account/recommendations/{saved[0]['id']}/feedback"
+
+    watching = client.post(
+        endpoint,
+        headers={"X-CSRF-Token": session["csrf_token"]},
+        json={"state": "watching", "watched_episodes": 4},
+    )
+
+    assert watching.status_code == 200
+    assert watching.json() == {
+        "ok": True,
+        "state": "watching",
+        "watched_score": None,
+        "watched_episodes": 4,
+        "tracker_sync": {
+            "state": "connection_required",
+            "detail": "Connect AniList to sync 4 watched episodes to your anime list.",
+            "connect_url": "/account/integrations/anilist/connect",
+        },
+    }
+    conn = db.connect(tmp_path)
+    item = db.watching_list(conn, user_id)[0]
+    assert item["title"] == "Pluto"
+    assert item["watched_episodes"] == 4
+    assert item["tracker_sync_state"] == "connection_required"
+    conn.close()
+
+
+def test_feedback_route_rejects_invalid_or_cross_state_progress_fields(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    user_id = _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="owner",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        mode="pro",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.1,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+                url="https://anilist.co/anime/99088/Pluto/",
+                source="anilist",
+            )
+        ],
+    )
+    conn.close()
+    _login(client, "owner@example.com", "owner-password")
+    session = client.get("/api/account/session").json()
+    endpoint = f"/api/account/recommendations/{saved[0]['id']}/feedback"
+    headers = {"X-CSRF-Token": session["csrf_token"]}
+
+    for payload in (
+        {"state": "watching"},
+        {"state": "watching", "watched_episodes": 0},
+        {"state": "watching", "watched_episodes": True},
+        {"state": "watching", "watched_episodes": 1.5},
+        {"state": "watching", "watched_episodes": 4, "watched_score": 8},
+        {"state": "watched", "watched_score": 8, "watched_episodes": 4},
+        {"state": "saved", "watched_episodes": 4},
+    ):
+        response = client.post(endpoint, headers=headers, json=payload)
+        assert response.status_code in {400, 422}
+
+    conn = db.connect(tmp_path)
+    assert db.watching_list(conn, user_id) == []
+    assert db.watched_list(conn, user_id) == []
+    conn.close()
 
 
 def test_watched_feedback_syncs_completed_score_to_matching_anilist_account(
@@ -894,6 +1056,7 @@ def test_watched_feedback_syncs_completed_score_to_matching_anilist_account(
         "ok": True,
         "state": "watched",
         "watched_score": 8,
+        "watched_episodes": None,
         "tracker_sync": {
             "state": "synced",
             "detail": "Added to OwnerOnAniList’s AniList as Completed · 8/10.",
@@ -908,6 +1071,139 @@ def test_watched_feedback_syncs_completed_score_to_matching_anilist_account(
     dashboard = client.get("/account")
     assert 'data-tracker-sync-state="synced"' in dashboard.text
     assert "Added to OwnerOnAniList’s AniList as Completed · 8/10." in dashboard.text
+
+
+def test_watching_feedback_syncs_current_progress_to_matching_anilist_account(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    user_id = _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    db.upsert_anilist_connection(
+        conn,
+        user_id=user_id,
+        anilist_user_id=42,
+        anilist_username="OwnerOnAniList",
+        encrypted_access_token=credentials.encrypt_secret("one-year-access-token"),
+    )
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="owneronanilist",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        mode="pro",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.1,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+                url="https://anilist.co/anime/99088/Pluto/",
+                source="anilist",
+            )
+        ],
+    )
+    conn.close()
+
+    calls = []
+
+    def save_current_entry(access_token, media_id, *, progress):
+        calls.append((access_token, media_id, progress))
+        return {
+            "id": 78,
+            "mediaId": 99088,
+            "status": "CURRENT",
+            "progress": 4,
+        }
+
+    monkeypatch.setattr(anilist, "save_current_entry", save_current_entry)
+    _login(client, "owner@example.com", "owner-password")
+    session = client.get("/api/account/session").json()
+    watching = client.post(
+        f"/api/account/recommendations/{saved[0]['id']}/feedback",
+        headers={"X-CSRF-Token": session["csrf_token"]},
+        json={"state": "watching", "watched_episodes": 4},
+    )
+
+    assert calls == [("one-year-access-token", 99088, 4)]
+    assert watching.status_code == 200
+    assert watching.json() == {
+        "ok": True,
+        "state": "watching",
+        "watched_score": None,
+        "watched_episodes": 4,
+        "tracker_sync": {
+            "state": "synced",
+            "detail": "Updated OwnerOnAniList’s AniList to Watching · 4 episodes.",
+        },
+    }
+    conn = db.connect(tmp_path)
+    item = db.watching_list(conn, user_id)[0]
+    assert item["tracker_sync_state"] == "synced"
+    assert item["tracker_synced_at"]
+    history_item = db.recommendation_history(conn, user_id)[0]["recommendations"][0]
+    assert history_item["tracker_remote_entry_id"] == 78
+    conn.close()
+
+
+def test_watching_feedback_never_writes_to_a_different_connected_anilist_account(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    user_id = _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    db.upsert_anilist_connection(
+        conn,
+        user_id=user_id,
+        anilist_user_id=42,
+        anilist_username="OwnerOnAniList",
+        encrypted_access_token=credentials.encrypt_secret("one-year-access-token"),
+    )
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="SomeoneElse",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        mode="pro",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.1,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+                url="https://anilist.co/anime/99088/Pluto/",
+                source="anilist",
+            )
+        ],
+    )
+    conn.close()
+
+    def reject_any_write(*args, **kwargs):
+        raise AssertionError("a mismatched AniList account was mutated")
+
+    monkeypatch.setattr(anilist, "save_current_entry", reject_any_write)
+    _login(client, "owner@example.com", "owner-password")
+    session = client.get("/api/account/session").json()
+    watching = client.post(
+        f"/api/account/recommendations/{saved[0]['id']}/feedback",
+        headers={"X-CSRF-Token": session["csrf_token"]},
+        json={"state": "watching", "watched_episodes": 4},
+    )
+
+    assert watching.status_code == 200
+    assert watching.json()["tracker_sync"] == {
+        "state": "account_mismatch",
+        "detail": (
+            "This menu used SomeoneElse, but AniList is connected as "
+            "OwnerOnAniList. No AniList list was changed."
+        ),
+    }
 
 
 def test_watched_feedback_never_writes_to_a_different_connected_anilist_account(

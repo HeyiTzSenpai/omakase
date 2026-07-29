@@ -54,8 +54,9 @@ class ProviderKeyInput(BaseModel):
 class FeedbackInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    state: Literal["neutral", "not_interested", "saved", "watched"]
+    state: Literal["neutral", "not_interested", "saved", "watching", "watched"]
     watched_score: int | None = Field(default=None, ge=1, le=10, strict=True)
+    watched_episodes: int | None = Field(default=None, ge=1, strict=True)
 
 
 def reset_rate_limits() -> None:
@@ -185,14 +186,16 @@ def _anilist_media_id(url: str | None) -> int | None:
     return media_id if media_id > 0 else None
 
 
-def _sync_watched_to_anilist(
+def _sync_watch_state_to_anilist(
     conn,
     *,
     user_id: int,
     recommendation_id: int,
     source_username: str,
     recommendation_url: str | None,
-    watched_score: int,
+    watch_status: Literal["current", "completed"],
+    watched_score: int | None,
+    watched_episodes: int | None,
     connected_username: str,
     access_token: str | None,
 ) -> dict[str, str]:
@@ -216,21 +219,41 @@ def _sync_watched_to_anilist(
             )
         else:
             try:
-                remote = anilist.save_completed_entry(
-                    access_token,
-                    media_id,
-                    score_ten=watched_score,
-                )
+                if watch_status == "current":
+                    if watched_episodes is None:
+                        raise ValueError("Watching needs a positive whole number of episodes.")
+                    remote = anilist.save_current_entry(
+                        access_token,
+                        media_id,
+                        progress=watched_episodes,
+                    )
+                else:
+                    if watched_score is None:
+                        raise ValueError("Already watched needs a score from 1 to 10.")
+                    remote = anilist.save_completed_entry(
+                        access_token,
+                        media_id,
+                        score_ten=watched_score,
+                    )
                 remote_entry_id = int(remote["id"])
                 state = "synced"
-                detail = (
-                    f"Added to {connected_username}’s AniList as Completed · {watched_score}/10."
-                )
+                if watch_status == "current":
+                    episode_label = "episode" if watched_episodes == 1 else "episodes"
+                    detail = (
+                        f"Updated {connected_username}’s AniList to Watching · "
+                        f"{watched_episodes} {episode_label}."
+                    )
+                else:
+                    detail = (
+                        f"Added to {connected_username}’s AniList as Completed · "
+                        f"{watched_score}/10."
+                    )
             except (httpx.HTTPError, KeyError, TypeError, ValueError):
                 state = "failed"
+                retry_action = "Watching" if watch_status == "current" else "Already watched"
                 detail = (
                     "Saved in Omakase, but AniList did not confirm the list update. "
-                    "Try Already watched again."
+                    f"Try {retry_action} again."
                 )
     db.set_recommendation_tracker_sync(
         conn,
@@ -367,6 +390,7 @@ async def account_dashboard(request: Request):
                 "csrf_token": _csrf_for_session(request, conn),
                 "taste_profile": db.get_profile(conn, user.id),
                 "saved": db.saved_list(conn, user.id),
+                "watching": db.watching_list(conn, user.id),
                 "watched": db.watched_list(conn, user.id),
                 "history": db.recommendation_history(conn, user.id),
                 "provider_keys": credentials.provider_key_summaries(
@@ -464,14 +488,24 @@ async def anilist_callback(request: Request):
                 anilist_username=str(identity["name"]),
                 encrypted_access_token=credentials.encrypt_secret(token),
             )
-            for pending in db.pending_anilist_watched(conn, user_id=user.id):
-                sync_result = _sync_watched_to_anilist(
+            for pending in db.pending_anilist_entries(conn, user_id=user.id):
+                sync_result = _sync_watch_state_to_anilist(
                     conn,
                     user_id=user.id,
                     recommendation_id=int(pending["id"]),
                     source_username=str(pending["source_username"]),
                     recommendation_url=pending["url"],
-                    watched_score=int(pending["watched_score"]),
+                    watch_status=str(pending["watch_status"]),
+                    watched_score=(
+                        int(pending["watched_score"])
+                        if pending["watched_score"] is not None
+                        else None
+                    ),
+                    watched_episodes=(
+                        int(pending["watched_episodes"])
+                        if pending["watched_episodes"] is not None
+                        else None
+                    ),
                     connected_username=str(identity["name"]),
                     access_token=token,
                 )
@@ -742,6 +776,11 @@ async def recommendation_feedback(
                 status_code=400,
                 detail="A watched score is only valid for Already watched.",
             )
+        if payload.state != "watching" and payload.watched_episodes is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Episode progress is only valid for Watching.",
+            )
         try:
             db.set_recommendation_feedback(
                 conn,
@@ -749,21 +788,29 @@ async def recommendation_feedback(
                 recommendation_id=recommendation_id,
                 state=payload.state,
                 watched_score=payload.watched_score,
+                watched_episodes=payload.watched_episodes,
             )
         except db.OwnershipError as exc:
             raise HTTPException(status_code=404, detail="Recommendation not found.") from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if (
-            payload.state == "watched"
+            payload.state in {"watching", "watched"}
             and recommendation is not None
             and recommendation["source"] == "anilist"
         ):
             connection = db.anilist_connection_record(conn, user_id=user.id)
             if connection is None:
+                if payload.state == "watching":
+                    detail = (
+                        f"Connect AniList to sync {payload.watched_episodes} watched "
+                        "episodes to your anime list."
+                    )
+                else:
+                    detail = "Connect AniList to add this title and score to your anime list."
                 tracker_sync = {
                     "state": "connection_required",
-                    "detail": "Connect AniList to add this title and score to your anime list.",
+                    "detail": detail,
                     "connect_url": "/account/integrations/anilist/connect",
                 }
             else:
@@ -771,13 +818,15 @@ async def recommendation_feedback(
                     token = credentials.decrypt_secret(str(connection["encrypted_access_token"]))
                 except credentials.CredentialError:
                     token = None
-                tracker_sync = _sync_watched_to_anilist(
+                tracker_sync = _sync_watch_state_to_anilist(
                     conn,
                     user_id=user.id,
                     recommendation_id=recommendation_id,
                     source_username=str(recommendation["source_username"]),
                     recommendation_url=recommendation["url"],
-                    watched_score=int(payload.watched_score),
+                    watch_status="current" if payload.state == "watching" else "completed",
+                    watched_score=payload.watched_score,
+                    watched_episodes=payload.watched_episodes,
                     connected_username=str(connection["anilist_username"]),
                     access_token=token,
                 )
@@ -795,6 +844,7 @@ async def recommendation_feedback(
         "ok": True,
         "state": payload.state,
         "watched_score": payload.watched_score if payload.state == "watched" else None,
+        "watched_episodes": (payload.watched_episodes if payload.state == "watching" else None),
     }
     if tracker_sync is not None:
         response["tracker_sync"] = tracker_sync
