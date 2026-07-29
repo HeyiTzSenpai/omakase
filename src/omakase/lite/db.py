@@ -12,7 +12,7 @@ from omakase.lite.models import AccountUser
 from omakase.types import Recommendation
 
 _MIGRATIONS = Path(__file__).resolve().parent / "migrations"
-_FEEDBACK_STATES = {"neutral", "not_interested", "saved", "watched"}
+_FEEDBACK_STATES = {"neutral", "not_interested", "saved", "watching", "watched"}
 
 
 class InviteError(ValueError):
@@ -273,7 +273,7 @@ def delete_anilist_connection(
     return cursor.rowcount == 1
 
 
-def pending_anilist_watched(
+def pending_anilist_entries(
     conn: sqlite3.Connection,
     *,
     user_id: int,
@@ -282,14 +282,28 @@ def pending_anilist_watched(
     rows = conn.execute(
         """
         SELECT recommendation.id, recommendation.url,
-               recommendation.watched_score, run.source_username
+               COALESCE(recommendation.watch_status, 'completed') AS watch_status,
+               recommendation.watched_score, recommendation.watched_episodes,
+               run.source_username
           FROM account_recommendations AS recommendation
           JOIN account_recommendation_runs AS run
             ON run.id = recommendation.run_id
          WHERE recommendation.user_id = ?
            AND recommendation.source = 'anilist'
            AND recommendation.feedback_state = 'watched'
-           AND recommendation.watched_score BETWEEN 1 AND 10
+           AND (
+               (
+                   recommendation.watch_status = 'current'
+                   AND recommendation.watched_episodes >= 1
+               )
+               OR (
+                   (
+                       recommendation.watch_status = 'completed'
+                       OR recommendation.watch_status IS NULL
+                   )
+                   AND recommendation.watched_score BETWEEN 1 AND 10
+               )
+           )
            AND recommendation.tracker_sync_state != 'synced'
          ORDER BY recommendation.feedback_at, recommendation.id
          LIMIT ?
@@ -297,6 +311,20 @@ def pending_anilist_watched(
         (user_id, limit),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def pending_anilist_watched(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    limit: int = 100,
+) -> list[dict]:
+    """Return completed pending rows for callers migrating to the generalized query."""
+    return [
+        item
+        for item in pending_anilist_entries(conn, user_id=user_id, limit=limit)
+        if item["watch_status"] == "completed"
+    ]
 
 
 def create_access_request(
@@ -801,7 +829,9 @@ def save_recommendation_run(
                 "url": recommendation.url,
                 "source": recommendation.source,
                 "feedback_state": "neutral",
+                "watch_status": None,
                 "watched_score": None,
+                "watched_episodes": None,
             }
         )
     conn.commit()
@@ -815,25 +845,56 @@ def set_recommendation_feedback(
     recommendation_id: int,
     state: str,
     watched_score: int | None = None,
+    watched_episodes: int | None = None,
 ) -> None:
     if state not in _FEEDBACK_STATES:
         raise ValueError("Unknown feedback state.")
-    if state == "watched":
+    stored_state = state
+    watch_status = None
+    if state == "watching":
+        if (
+            isinstance(watched_episodes, bool)
+            or not isinstance(watched_episodes, int)
+            or watched_episodes < 1
+        ):
+            raise ValueError("Watching needs a positive whole number of episodes.")
+        stored_state = "watched"
+        watch_status = "current"
+        watched_score = None
+    elif state == "watched":
         if (
             isinstance(watched_score, bool)
             or not isinstance(watched_score, int)
             or not 1 <= watched_score <= 10
         ):
             raise ValueError("Already watched needs a score from 1 to 10.")
+        watch_status = "completed"
+        watched_episodes = None
     else:
         watched_score = None
+        watched_episodes = None
     cursor = conn.execute(
         """
         UPDATE account_recommendations
-           SET feedback_state = ?, watched_score = ?, feedback_at = CURRENT_TIMESTAMP
+           SET feedback_state = ?,
+               watch_status = ?,
+               watched_score = ?,
+               watched_episodes = ?,
+               feedback_at = CURRENT_TIMESTAMP,
+               tracker_sync_state = 'local_only',
+               tracker_sync_detail = NULL,
+               tracker_remote_entry_id = NULL,
+               tracker_synced_at = NULL
          WHERE id = ? AND user_id = ?
         """,
-        (state, watched_score, recommendation_id, user_id),
+        (
+            stored_state,
+            watch_status,
+            watched_score,
+            watched_episodes,
+            recommendation_id,
+            user_id,
+        ),
     )
     if cursor.rowcount != 1:
         raise OwnershipError("Recommendation not found.")
@@ -844,7 +905,8 @@ def saved_list(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     rows = conn.execute(
         """
         SELECT id, title, predicted_score, reasoning, best_match_from_history,
-               url, source, feedback_state, watched_score, created_at
+               url, source, feedback_state, watch_status, watched_score,
+               watched_episodes, created_at
           FROM account_recommendations
          WHERE user_id = ? AND feedback_state = 'saved'
          ORDER BY feedback_at DESC, id DESC
@@ -858,10 +920,31 @@ def watched_list(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     rows = conn.execute(
         """
         SELECT id, title, predicted_score, reasoning, best_match_from_history,
-               url, source, feedback_state, watched_score, feedback_at,
+               url, source, feedback_state, watch_status, watched_score,
+               watched_episodes, feedback_at,
                tracker_sync_state, tracker_sync_detail, tracker_synced_at
           FROM account_recommendations
-         WHERE user_id = ? AND feedback_state = 'watched'
+         WHERE user_id = ?
+           AND feedback_state = 'watched'
+           AND (watch_status = 'completed' OR watch_status IS NULL)
+         ORDER BY feedback_at DESC, id DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def watching_list(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT id, title, predicted_score, reasoning, best_match_from_history,
+               url, source, feedback_state, watch_status, watched_score,
+               watched_episodes, feedback_at,
+               tracker_sync_state, tracker_sync_detail, tracker_synced_at
+          FROM account_recommendations
+         WHERE user_id = ?
+           AND feedback_state = 'watched'
+           AND watch_status = 'current'
          ORDER BY feedback_at DESC, id DESC
         """,
         (user_id,),
@@ -938,7 +1021,8 @@ def recommendation_history(conn: sqlite3.Connection, user_id: int) -> list[dict]
         items = conn.execute(
             """
             SELECT id, title, predicted_score, reasoning, best_match_from_history,
-                   url, source, feedback_state, watched_score,
+                   url, source, feedback_state, watch_status, watched_score,
+                   watched_episodes,
                    tracker_sync_state, tracker_sync_detail,
                    tracker_remote_entry_id, tracker_synced_at
               FROM account_recommendations
@@ -976,7 +1060,8 @@ def feedback_titles(conn: sqlite3.Connection, user_id: int) -> list[str]:
 def feedback_context(conn: sqlite3.Connection, user_id: int) -> str:
     rows = conn.execute(
         """
-        SELECT title, feedback_state, watched_score
+        SELECT title, feedback_state, watch_status, watched_score,
+               watched_episodes
           FROM account_recommendations
          WHERE user_id = ? AND feedback_state != 'neutral'
          ORDER BY feedback_at DESC, id DESC
@@ -987,18 +1072,30 @@ def feedback_context(conn: sqlite3.Connection, user_id: int) -> str:
     grouped = {
         "not_interested": [],
         "saved": [],
+        "watching": [],
         "watched": [],
     }
     for row in rows:
         value = row["title"]
-        if row["feedback_state"] == "watched" and row["watched_score"] is not None:
+        group = row["feedback_state"]
+        if (
+            row["feedback_state"] == "watched"
+            and row["watch_status"] == "current"
+            and row["watched_episodes"] is not None
+        ):
+            episode_label = "episode" if row["watched_episodes"] == 1 else "episodes"
+            value = f"{value} ({row['watched_episodes']} {episode_label})"
+            group = "watching"
+        elif row["feedback_state"] == "watched" and row["watched_score"] is not None:
             value = f"{value} ({row['watched_score']}/10)"
-        grouped[row["feedback_state"]].append(value)
+        grouped[group].append(value)
     lines: list[str] = []
     if grouped["not_interested"]:
         lines.append(f"Avoid recommending again: {', '.join(grouped['not_interested'])}.")
     if grouped["saved"]:
         lines.append(f"Saved for later: {', '.join(grouped['saved'])}.")
+    if grouped["watching"]:
+        lines.append(f"Currently watching: {', '.join(grouped['watching'])}.")
     if grouped["watched"]:
         lines.append(f"Already watched and rated: {', '.join(grouped['watched'])}.")
     return "\n".join(lines)

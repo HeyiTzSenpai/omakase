@@ -326,19 +326,27 @@ def test_anilist_sync_migration_preserves_existing_watched_feedback(tmp_path):
     conn.close()
 
     migrated = db.connect(tmp_path)
+    recommendation_columns = {
+        row["name"]
+        for row in migrated.execute("PRAGMA table_info(account_recommendations)")
+    }
     watched = migrated.execute(
         """
-        SELECT title, feedback_state, watched_score, tracker_sync_state,
-               tracker_sync_detail, tracker_remote_entry_id, tracker_synced_at
+        SELECT title, feedback_state, watch_status, watched_score,
+               watched_episodes, tracker_sync_state, tracker_sync_detail,
+               tracker_remote_entry_id, tracker_synced_at
           FROM account_recommendations
          WHERE id = 1
         """
     ).fetchone()
 
+    assert {"watch_status", "watched_episodes"} <= recommendation_columns
     assert dict(watched) == {
         "title": "Pluto",
         "feedback_state": "watched",
+        "watch_status": "completed",
         "watched_score": 8,
+        "watched_episodes": None,
         "tracker_sync_state": "local_only",
         "tracker_sync_detail": None,
         "tracker_remote_entry_id": None,
@@ -928,3 +936,100 @@ def test_watched_feedback_requires_score_and_other_states_clear_it(tmp_path):
     changed = db.recommendation_history(conn, user_id)[0]["recommendations"][0]
     assert changed["feedback_state"] == "saved"
     assert changed["watched_score"] is None
+
+
+def test_watching_feedback_requires_positive_episodes_and_clears_incompatible_fields(
+    tmp_path,
+):
+    conn = _connection(tmp_path)
+    user_id = db.bootstrap_admin(
+        conn,
+        email="owner@example.com",
+        password_hash=auth.hash_password("owner-password"),
+        display_name="Owner",
+    )
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="owner",
+        provider="deepseek",
+        model="deepseek-v4-flash",
+        mode="fast",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.2,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+            )
+        ],
+    )
+    recommendation_id = saved[0]["id"]
+
+    for invalid in (True, 0, -1, 1.5):
+        with pytest.raises(
+            ValueError,
+            match="Watching needs a positive whole number of episodes",
+        ):
+            db.set_recommendation_feedback(
+                conn,
+                user_id=user_id,
+                recommendation_id=recommendation_id,
+                state="watching",
+                watched_episodes=invalid,
+            )
+
+    db.set_recommendation_feedback(
+        conn,
+        user_id=user_id,
+        recommendation_id=recommendation_id,
+        state="watching",
+        watched_episodes=3,
+    )
+    history_item = db.recommendation_history(conn, user_id)[0]["recommendations"][0]
+    assert history_item["feedback_state"] == "watched"
+    assert history_item["watch_status"] == "current"
+    assert history_item["watched_episodes"] == 3
+    assert history_item["watched_score"] is None
+    assert db.watching_list(conn, user_id)[0]["title"] == "Pluto"
+    assert db.watched_list(conn, user_id) == []
+    assert "Currently watching: Pluto (3 episodes)." in db.feedback_context(conn, user_id)
+
+    db.set_recommendation_feedback(
+        conn,
+        user_id=user_id,
+        recommendation_id=recommendation_id,
+        state="watched",
+        watched_score=8,
+    )
+    completed = db.recommendation_history(conn, user_id)[0]["recommendations"][0]
+    assert completed["watch_status"] == "completed"
+    assert completed["watched_score"] == 8
+    assert completed["watched_episodes"] is None
+    assert db.watching_list(conn, user_id) == []
+    assert db.watched_list(conn, user_id)[0]["title"] == "Pluto"
+
+    db.set_recommendation_tracker_sync(
+        conn,
+        user_id=user_id,
+        recommendation_id=recommendation_id,
+        state="synced",
+        detail="Remote receipt.",
+        remote_entry_id=77,
+    )
+    db.set_recommendation_feedback(
+        conn,
+        user_id=user_id,
+        recommendation_id=recommendation_id,
+        state="saved",
+    )
+    cleared = db.recommendation_history(conn, user_id)[0]["recommendations"][0]
+    assert cleared["feedback_state"] == "saved"
+    assert cleared["watch_status"] is None
+    assert cleared["watched_score"] is None
+    assert cleared["watched_episodes"] is None
+    assert cleared["tracker_sync_state"] == "local_only"
+    assert cleared["tracker_sync_detail"] is None
+    assert cleared["tracker_remote_entry_id"] is None
+    assert cleared["tracker_synced_at"] is None
