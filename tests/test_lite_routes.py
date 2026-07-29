@@ -936,6 +936,12 @@ def test_watching_feedback_route_saves_progress_before_anilist_connection(
     assert item["watched_episodes"] == 4
     assert item["tracker_sync_state"] == "connection_required"
     conn.close()
+    dashboard = client.get("/account")
+    assert '<h2 id="watching-title">Currently watching</h2>' in dashboard.text
+    assert "Pluto" in dashboard.text
+    assert "Watching · 4 episodes" in dashboard.text
+    assert "watching · 4 episodes" in dashboard.text
+    assert "Connect AniList to sync 4 watched episodes to your anime list." in dashboard.text
 
 
 def test_feedback_route_rejects_invalid_or_cross_state_progress_fields(

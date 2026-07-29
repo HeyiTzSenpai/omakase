@@ -1115,6 +1115,33 @@ fieldset > legend,
   outline-offset: -3px;
 }
 
+.episode-progress-field {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+  color: var(--paper-muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.episode-progress-field input {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.75rem 0.85rem;
+  outline: 0;
+  background: var(--surface);
+  color: var(--paper);
+}
+
+.episode-progress-field input:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

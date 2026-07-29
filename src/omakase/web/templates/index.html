@@ -313,6 +313,31 @@
       <div class="results-list" id="results-list"></div>
     </section>
 
+    <dialog class="score-dialog" id="watching-dialog" aria-labelledby="watching-dialog-title">
+      <form id="watching-progress-form" method="dialog">
+        <p class="course-label">Watching</p>
+        <h2 id="watching-dialog-title">How far are you?</h2>
+        <p id="watching-dialog-copy">Save the episodes you have watched so Omakase can remember your progress.</p>
+        <label class="episode-progress-field" for="watched-episodes">
+          Episodes watched
+          <input
+            id="watched-episodes"
+            name="watched-episodes"
+            type="number"
+            min="1"
+            step="1"
+            inputmode="numeric"
+            required
+          >
+        </label>
+        <p class="dialog-error" id="watching-dialog-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button class="button button--quiet" id="cancel-watching-progress" type="button">Cancel</button>
+          <button class="button button--primary" type="submit">Save progress</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog class="score-dialog" id="watched-dialog" aria-labelledby="watched-dialog-title">
       <form id="watched-score-form" method="dialog">
         <p class="course-label">Already watched</p>

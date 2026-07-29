@@ -19,17 +19,17 @@
         {% if anilist_connection %}<span>Connected</span>{% endif %}
       </div>
       {% if anilist_connection %}
-        <p class="section-copy">Connected as {{ anilist_connection.anilist_username }}. Watched scores from AniList recommendations can sync to this account.</p>
+        <p class="section-copy">Connected as {{ anilist_connection.anilist_username }}. Episode progress and completed scores from AniList recommendations can sync to this account.</p>
         <form method="post" action="/account/integrations/anilist/disconnect">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button class="text-button" type="submit">Disconnect AniList</button>
         </form>
         <p class="section-copy">Disconnecting removes Omakase’s encrypted token. You can also revoke the app from AniList’s Apps settings.</p>
       {% elif anilist_available %}
-        <p class="section-copy">Connect the AniList account you own to add watched recommendations and scores to its anime list. Compatible watched scores you already saved will be retried after connection. AniList grants broad account access for one year.</p>
+        <p class="section-copy">Connect the AniList account you own to sync recommended titles you are watching or have completed. Compatible episode progress and scores you already saved will be retried after connection. AniList grants broad account access for one year.</p>
         <a class="button-link" href="/account/integrations/anilist/connect">Connect AniList</a>
       {% else %}
-        <p class="section-copy">AniList synchronization has not been enabled on this server yet. Watched scores still remain in Omakase and can be retried after the owner configures the connection.</p>
+        <p class="section-copy">AniList synchronization has not been enabled on this server yet. Episode progress and completed scores still remain in Omakase and can be retried after the owner configures the connection.</p>
       {% endif %}
     </section>
     <section class="dashboard-section" aria-labelledby="provider-keys-title">
@@ -92,6 +92,16 @@
         </ol>
       {% else %}<p class="empty-state">Nothing saved yet. Make a menu, then choose “Add to My List” on anything that catches your eye.</p>{% endif %}
     </section>
+    <section class="dashboard-section" aria-labelledby="watching-title">
+      <div class="section-heading"><div><p class="eyebrow">My list</p><h2 id="watching-title">Currently watching</h2></div><span>{{ watching|length }} title{% if watching|length != 1 %}s{% endif %}</span></div>
+      {% if watching %}
+        <ol class="recommendation-list">
+        {% for item in watching %}
+          <li data-tracker-sync-state="{{ item.tracker_sync_state }}"><div><a href="{{ item.url or '#' }}">{{ item.title }}</a><p>{{ item.reasoning }}</p><small>Watching · {{ item.watched_episodes }} episode{% if item.watched_episodes != 1 %}s{% endif %}</small>{% if item.tracker_sync_detail %}<small class="tracker-sync-detail">{{ item.tracker_sync_detail }}</small>{% endif %}</div><strong>{{ item.predicted_score }}</strong></li>
+        {% endfor %}
+        </ol>
+      {% else %}<p class="empty-state">Titles you mark Watching will appear here with your episode progress.</p>{% endif %}
+    </section>
     <section class="dashboard-section" aria-labelledby="watched-title">
       <div class="section-heading"><div><p class="eyebrow">My list</p><h2 id="watched-title">Watched &amp; rated</h2></div><span>{{ watched|length }} title{% if watched|length != 1 %}s{% endif %}</span></div>
       {% if watched %}
@@ -110,7 +120,7 @@
           <summary><span>{{ run.created_at }} · {{ run.provider }} / {{ run.mode }}</span><strong>{{ run.recommendations|length }} picks</strong></summary>
           <ol class="recommendation-list">
           {% for item in run.recommendations %}
-            <li data-recommendation-id="{{ item.id }}" data-tracker-sync-state="{{ item.tracker_sync_state }}"><div><a href="{{ item.url or '#' }}">{{ item.title }}</a><p>{{ item.reasoning }}</p><small>{{ item.feedback_state|replace('_', ' ') }}{% if item.feedback_state == 'watched' and item.watched_score %} · {{ item.watched_score }}/10{% endif %}</small>{% if item.feedback_state == 'watched' and item.tracker_sync_detail %}<small class="tracker-sync-detail">{{ item.tracker_sync_detail }}</small>{% endif %}</div><strong>{{ item.predicted_score }}</strong></li>
+            <li data-recommendation-id="{{ item.id }}" data-tracker-sync-state="{{ item.tracker_sync_state }}"><div><a href="{{ item.url or '#' }}">{{ item.title }}</a><p>{{ item.reasoning }}</p><small>{% if item.feedback_state == 'watched' and item.watch_status == 'current' %}watching · {{ item.watched_episodes }} episode{% if item.watched_episodes != 1 %}s{% endif %}{% else %}{{ item.feedback_state|replace('_', ' ') }}{% if item.feedback_state == 'watched' and item.watched_score %} · {{ item.watched_score }}/10{% endif %}{% endif %}</small>{% if item.feedback_state == 'watched' and item.tracker_sync_detail %}<small class="tracker-sync-detail">{{ item.tracker_sync_detail }}</small>{% endif %}</div><strong>{{ item.predicted_score }}</strong></li>
           {% endfor %}
           </ol>
         </details>

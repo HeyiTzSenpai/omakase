@@ -40,6 +40,10 @@ def test_public_mode_promotes_byok_and_keeps_plus_private(monkeypatch):
     assert 'class="masked-credential"' in response.text
     assert 'name="provider_credential"\n                    type="password"' not in response.text
     assert 'name="watched-score" value="10"' in response.text
+    assert 'id="watching-dialog"' in response.text
+    assert 'name="watched-episodes"' in response.text
+    assert 'min="1"' in response.text
+    assert 'step="1"' in response.text
     assert "{% for" not in response.text
 
 
