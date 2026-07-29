@@ -40,10 +40,7 @@ Extend the existing legacy watched-row migration fixture and assert literal
 post-migration values:
 
 ```python
-columns = {
-    row["name"]
-    for row in migrated.execute("PRAGMA table_info(account_recommendations)")
-}
+columns = {row["name"] for row in migrated.execute("PRAGMA table_info(account_recommendations)")}
 assert {"watch_status", "watched_episodes"} <= columns
 row = migrated.execute(
     """
@@ -288,10 +285,7 @@ assert response.json() == {
     "watched_episodes": 3,
     "tracker_sync": {
         "state": "connection_required",
-        "detail": (
-            "Connect AniList to add this title and episode progress "
-            "to your anime list."
-        ),
+        "detail": ("Connect AniList to add this title and episode progress to your anime list."),
         "connect_url": "/account/integrations/anilist/connect",
     },
 }
@@ -352,10 +346,7 @@ if watch_status == "current":
         media_id,
         progress=int(watched_episodes),
     )
-    detail = (
-        f"Updated {connected_username}’s AniList as Current · "
-        f"episode {watched_episodes}."
-    )
+    detail = f"Updated {connected_username}’s AniList as Current · episode {watched_episodes}."
 else:
     remote = anilist.save_completed_entry(
         access_token,

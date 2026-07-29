@@ -327,8 +327,7 @@ def test_anilist_sync_migration_preserves_existing_watched_feedback(tmp_path):
 
     migrated = db.connect(tmp_path)
     recommendation_columns = {
-        row["name"]
-        for row in migrated.execute("PRAGMA table_info(account_recommendations)")
+        row["name"] for row in migrated.execute("PRAGMA table_info(account_recommendations)")
     }
     watched = migrated.execute(
         """
