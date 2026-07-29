@@ -1,0 +1,12 @@
+# Optional AniList account-list synchronization overlay.
+services:
+  omakase:
+    environment:
+      OMAKASE_ANILIST_CLIENT_ID: ${OMAKASE_ANILIST_CLIENT_ID:?Set the AniList client ID}
+      OMAKASE_ANILIST_CLIENT_SECRET_FILE: /run/secrets/anilist_client_secret
+    secrets:
+      - anilist_client_secret
+
+secrets:
+  anilist_client_secret:
+    file: ./secrets/anilist-client-secret

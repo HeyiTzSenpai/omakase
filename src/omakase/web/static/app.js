@@ -534,7 +534,11 @@ async function saveFeedback(button, watchedScore = null) {
       button.textContent = `Watched · ${data.watched_score}/10`;
       button.dataset.watchedScore = data.watched_score;
     }
-    status.textContent = accountState.feedbackConfirmation(data.state, data.watched_score);
+    status.textContent = accountState.feedbackConfirmation(
+      data.state,
+      data.watched_score,
+      data.tracker_sync,
+    );
     return true;
   } catch (error) {
     status.textContent = error.message || "That preference could not be saved.";

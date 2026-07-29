@@ -42,7 +42,21 @@ test("writes clear feedback confirmations", () => {
   );
   assert.equal(
     state.feedbackConfirmation("watched", 9),
-    "Already watched saved with your 9/10 score. Future menus will use it.",
+    "Saved in Omakase with your 9/10 score. Future menus will use it.",
+  );
+  assert.equal(
+    state.feedbackConfirmation("watched", 9, {
+      state: "synced",
+      detail: "Added to Friend’s AniList as Completed · 9/10.",
+    }),
+    "Added to Friend’s AniList as Completed · 9/10.",
+  );
+  assert.equal(
+    state.feedbackConfirmation("watched", 9, {
+      state: "connection_required",
+      detail: "Connect AniList to add this title and score to your anime list.",
+    }),
+    "Saved in Omakase with your 9/10 score. Connect AniList to add this title and score to your anime list.",
   );
 });
 

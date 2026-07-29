@@ -35,7 +35,7 @@
     return { state, watched_score: score };
   }
 
-  function feedbackConfirmation(state, watchedScore = null) {
+  function feedbackConfirmation(state, watchedScore = null, trackerSync = null) {
     if (state === "not_interested") {
       return "Not interested saved. This title will stay out of future menus.";
     }
@@ -43,7 +43,18 @@
       return "Added to My List. This title will stay out of future menus.";
     }
     if (state === "watched") {
-      return `Already watched saved with your ${Number(watchedScore)}/10 score. Future menus will use it.`;
+      if (
+        trackerSync
+        && trackerSync.state === "synced"
+        && typeof trackerSync.detail === "string"
+      ) {
+        return trackerSync.detail;
+      }
+      const local = `Saved in Omakase with your ${Number(watchedScore)}/10 score.`;
+      if (trackerSync && typeof trackerSync.detail === "string") {
+        return `${local} ${trackerSync.detail}`;
+      }
+      return `${local} Future menus will use it.`;
     }
     return "Preference cleared.";
   }

@@ -53,6 +53,23 @@ def _fernet() -> Fernet:
         raise KeyringUnavailable("Saved provider keys are temporarily unavailable.") from exc
 
 
+def encrypt_secret(plaintext: str) -> str:
+    if not plaintext:
+        raise CredentialError("An account secret cannot be empty.")
+    if len(plaintext) > _MAX_KEY_LENGTH:
+        raise CredentialError("The account secret is too long.")
+    return _fernet().encrypt(plaintext.encode("utf-8")).decode("ascii")
+
+
+def decrypt_secret(ciphertext: str) -> str:
+    try:
+        return _fernet().decrypt(ciphertext.encode("ascii")).decode("utf-8")
+    except KeyringUnavailable:
+        raise
+    except (InvalidToken, UnicodeError, ValueError) as exc:
+        raise SavedCredentialInvalid("The saved account connection cannot be used.") from exc
+
+
 def save_provider_key(
     conn,
     *,
@@ -66,7 +83,7 @@ def save_provider_key(
         raise CredentialError("Paste a provider key before saving.")
     if len(key) > _MAX_KEY_LENGTH:
         raise CredentialError("The provider key is too long.")
-    encrypted_key = _fernet().encrypt(key.encode("utf-8")).decode("ascii")
+    encrypted_key = encrypt_secret(key)
     hint = key[-4:]
     db.upsert_provider_key(
         conn,
@@ -88,10 +105,8 @@ def load_provider_key(conn, *, user_id: int, provider: str) -> str | None:
     if row is None:
         return None
     try:
-        return _fernet().decrypt(row["encrypted_key"].encode("ascii")).decode("utf-8")
-    except KeyringUnavailable:
-        raise
-    except (InvalidToken, UnicodeError, ValueError) as exc:
+        return decrypt_secret(row["encrypted_key"])
+    except SavedCredentialInvalid as exc:
         raise SavedCredentialInvalid(
             "The saved provider key cannot be used. Replace it and try again."
         ) from exc

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from urllib.parse import urlsplit
+import hashlib
+from urllib.parse import parse_qs, urlsplit
 
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from omakase.lite import auth, credentials, db, routes
+from omakase.lite import anilist, auth, credentials, db, routes
 from omakase.types import Recommendation
 from omakase.web import server
 
@@ -451,7 +452,308 @@ def test_provider_key_routes_reject_unknown_provider_and_fail_closed_without_key
     assert "sk-owner-secret-1234" not in unavailable.text
 
 
-def test_watched_feedback_route_requires_and_returns_persisted_score(monkeypatch, tmp_path):
+def test_anilist_connect_requires_login_and_stores_one_time_authorization(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_ID", "public-client-id")
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_SECRET", "public-client-secret")
+    _bootstrap_admin(tmp_path)
+
+    guest = client.get(
+        "/account/integrations/anilist/connect",
+        follow_redirects=False,
+    )
+    assert guest.status_code == 401
+
+    _login(client, "owner@example.com", "owner-password")
+    connected = client.get(
+        "/account/integrations/anilist/connect",
+        follow_redirects=False,
+    )
+
+    assert connected.status_code == 302
+    location = urlsplit(connected.headers["location"])
+    assert (location.scheme, location.netloc, location.path) == (
+        "https",
+        "anilist.co",
+        "/api/v2/oauth/authorize",
+    )
+    query = parse_qs(location.query)
+    assert query["client_id"] == ["public-client-id"]
+    assert query["redirect_uri"] == [
+        "https://omakase.example/account/integrations/anilist/callback"
+    ]
+    assert query["response_type"] == ["code"]
+    assert "code_challenge" not in query
+    assert "code_challenge_method" not in query
+    state = query["state"][0]
+    assert len(state) >= 32
+
+    conn = db.connect(tmp_path)
+    flow = conn.execute(
+        """
+        SELECT state_hash, expires_at
+          FROM account_oauth_flows
+        """
+    ).fetchone()
+    assert flow["state_hash"] == hashlib.sha256(state.encode("utf-8")).hexdigest()
+    conn.close()
+
+
+def test_anilist_connect_fails_before_redirect_when_client_secret_is_unavailable(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_ID", "public-client-id")
+    _bootstrap_admin(tmp_path)
+    _login(client, "owner@example.com", "owner-password")
+    dashboard = client.get("/account")
+    assert "AniList synchronization has not been enabled on this server yet." in dashboard.text
+    assert 'href="/account/integrations/anilist/connect"' not in dashboard.text
+
+    unavailable = client.get(
+        "/account/integrations/anilist/connect",
+        follow_redirects=False,
+    )
+
+    assert unavailable.status_code == 503
+    assert unavailable.json() == {"detail": "AniList connection is not configured yet."}
+    conn = db.connect(tmp_path)
+    assert conn.execute("SELECT COUNT(*) FROM account_oauth_flows").fetchone()[0] == 0
+    conn.close()
+
+
+def test_anilist_callback_binds_identity_and_encrypts_access_token(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_ID", "public-client-id")
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_SECRET", "public-client-secret")
+    _bootstrap_admin(tmp_path)
+    _login(client, "owner@example.com", "owner-password")
+    started = client.get(
+        "/account/integrations/anilist/connect",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    observed = {}
+
+    def exchange_code(*, client_id, client_secret, redirect_uri, code):
+        observed.update(
+            {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "code": code,
+            }
+        )
+        return "one-year-access-token"
+
+    monkeypatch.setattr(anilist, "exchange_code", exchange_code, raising=False)
+    monkeypatch.setattr(
+        anilist,
+        "viewer_identity",
+        lambda access_token: {"id": 42, "name": "OwnerOnAniList"},
+        raising=False,
+    )
+    callback = client.get(
+        f"/account/integrations/anilist/callback?code=one-time-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/account?anilist=connected&synced=0"
+    assert observed == {
+        "client_id": "public-client-id",
+        "client_secret": "public-client-secret",
+        "redirect_uri": "https://omakase.example/account/integrations/anilist/callback",
+        "code": "one-time-code",
+    }
+    conn = db.connect(tmp_path)
+    connection = conn.execute(
+        """
+        SELECT anilist_user_id, anilist_username, encrypted_access_token
+          FROM account_anilist_connections
+        """
+    ).fetchone()
+    assert dict(connection) == {
+        "anilist_user_id": 42,
+        "anilist_username": "OwnerOnAniList",
+        "encrypted_access_token": connection["encrypted_access_token"],
+    }
+    assert "one-year-access-token" not in connection["encrypted_access_token"]
+    assert conn.execute("SELECT COUNT(*) FROM account_oauth_flows").fetchone()[0] == 0
+    conn.close()
+    dashboard = client.get("/account")
+    assert "Connected as OwnerOnAniList" in dashboard.text
+    assert "one-year-access-token" not in dashboard.text
+
+
+def test_hosted_anilist_callback_refuses_environment_only_client_secret(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_ID", "public-client-id")
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_SECRET", "must-not-be-used-in-hosted-mode")
+    _bootstrap_admin(tmp_path)
+    _login(client, "owner@example.com", "owner-password")
+    started = client.get(
+        "/account/integrations/anilist/connect",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    monkeypatch.setenv("OMAKASE_PUBLIC_HOSTED", "true")
+
+    def reject_exchange(**kwargs):
+        raise AssertionError("hosted mode read the AniList secret from container environment")
+
+    monkeypatch.setattr(anilist, "exchange_code", reject_exchange)
+    callback = client.get(
+        f"/account/integrations/anilist/callback?code=one-time-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 503
+    assert callback.json() == {"detail": "AniList connection is not configured yet."}
+    assert "must-not-be-used-in-hosted-mode" not in callback.text
+
+
+def test_anilist_callback_syncs_existing_matching_watched_scores(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_ID", "public-client-id")
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_SECRET", "public-client-secret")
+    user_id = _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="OwnerOnAniList",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        mode="pro",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.1,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+                url="https://anilist.co/anime/99088/Pluto/",
+                source="anilist",
+            )
+        ],
+    )
+    db.set_recommendation_feedback(
+        conn,
+        user_id=user_id,
+        recommendation_id=saved[0]["id"],
+        state="watched",
+        watched_score=8,
+    )
+    conn.close()
+    _login(client, "owner@example.com", "owner-password")
+    started = client.get(
+        "/account/integrations/anilist/connect",
+        follow_redirects=False,
+    )
+    state = parse_qs(urlsplit(started.headers["location"]).query)["state"][0]
+    monkeypatch.setattr(anilist, "exchange_code", lambda **kwargs: "one-year-access-token")
+    monkeypatch.setattr(
+        anilist,
+        "viewer_identity",
+        lambda access_token: {"id": 42, "name": "owneronanilist"},
+    )
+
+    def save_completed_entry(access_token, media_id, *, score_ten):
+        if (access_token, media_id, score_ten) != (
+            "one-year-access-token",
+            99088,
+            8,
+        ):
+            raise AssertionError("pending AniList sync received the wrong row")
+        return {
+            "id": 77,
+            "mediaId": 99088,
+            "status": "COMPLETED",
+            "score": 80,
+        }
+
+    monkeypatch.setattr(anilist, "save_completed_entry", save_completed_entry)
+    callback = client.get(
+        f"/account/integrations/anilist/callback?code=one-time-code&state={state}",
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "/account?anilist=connected&synced=1"
+    conn = db.connect(tmp_path)
+    row = conn.execute(
+        """
+        SELECT tracker_sync_state, tracker_remote_entry_id, tracker_synced_at
+          FROM account_recommendations
+         WHERE id = ?
+        """,
+        (saved[0]["id"],),
+    ).fetchone()
+    assert row["tracker_sync_state"] == "synced"
+    assert row["tracker_remote_entry_id"] == 77
+    assert row["tracker_synced_at"]
+    conn.close()
+
+
+def test_anilist_disconnect_requires_csrf_and_removes_only_the_local_token(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_ID", "public-client-id")
+    monkeypatch.setenv("OMAKASE_ANILIST_CLIENT_SECRET", "public-client-secret")
+    user_id = _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    db.upsert_anilist_connection(
+        conn,
+        user_id=user_id,
+        anilist_user_id=42,
+        anilist_username="OwnerOnAniList",
+        encrypted_access_token=credentials.encrypt_secret("one-year-access-token"),
+    )
+    conn.close()
+    _login(client, "owner@example.com", "owner-password")
+    session = client.get("/api/account/session").json()
+
+    missing_csrf = client.post(
+        "/account/integrations/anilist/disconnect",
+        follow_redirects=False,
+    )
+    assert missing_csrf.status_code == 403
+    disconnected = client.post(
+        "/account/integrations/anilist/disconnect",
+        data={"csrf_token": session["csrf_token"]},
+        follow_redirects=False,
+    )
+
+    assert disconnected.status_code == 302
+    assert disconnected.headers["location"] == "/account?anilist=disconnected"
+    conn = db.connect(tmp_path)
+    assert db.anilist_connection_summary(conn, user_id=user_id) is None
+    conn.close()
+    dashboard = client.get("/account")
+    assert "Connect AniList" in dashboard.text
+    assert "one-year-access-token" not in dashboard.text
+
+
+def test_watched_feedback_route_requires_anilist_connection_and_lists_score(
+    monkeypatch,
+    tmp_path,
+):
     client = _client(monkeypatch, tmp_path)
     user_id = _bootstrap_admin(tmp_path)
     conn = db.connect(tmp_path)
@@ -469,6 +771,8 @@ def test_watched_feedback_route_requires_and_returns_persisted_score(monkeypatch
                 predicted_score=9.1,
                 reasoning="A careful mystery.",
                 best_match_from_history="Monster",
+                url="https://anilist.co/anime/99088/Pluto/",
+                source="anilist",
             )
         ],
     )
@@ -491,9 +795,23 @@ def test_watched_feedback_route_requires_and_returns_persisted_score(monkeypatch
         json={"state": "watched", "watched_score": 8},
     )
     assert scored.status_code == 200
-    assert scored.json() == {"ok": True, "state": "watched", "watched_score": 8}
+    assert scored.json() == {
+        "ok": True,
+        "state": "watched",
+        "watched_score": 8,
+        "tracker_sync": {
+            "state": "connection_required",
+            "detail": "Connect AniList to add this title and score to your anime list.",
+            "connect_url": "/account/integrations/anilist/connect",
+        },
+    }
     dashboard = client.get("/account")
+    assert '<h2 id="watched-title">Watched &amp; rated</h2>' in dashboard.text
+    assert "1 title" in dashboard.text
+    assert "Pluto" in dashboard.text
     assert "watched · 8/10" in dashboard.text
+    assert 'data-tracker-sync-state="connection_required"' in dashboard.text
+    assert "Connect AniList to add this title and score to your anime list." in dashboard.text
 
     cleared = client.post(
         endpoint,
@@ -505,4 +823,150 @@ def test_watched_feedback_route_requires_and_returns_persisted_score(monkeypatch
         "ok": True,
         "state": "not_interested",
         "watched_score": None,
+    }
+
+
+def test_watched_feedback_syncs_completed_score_to_matching_anilist_account(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    user_id = _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    db.upsert_anilist_connection(
+        conn,
+        user_id=user_id,
+        anilist_user_id=42,
+        anilist_username="OwnerOnAniList",
+        encrypted_access_token=credentials.encrypt_secret("one-year-access-token"),
+    )
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="owneronanilist",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        mode="pro",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.1,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+                url="https://anilist.co/anime/99088/Pluto/",
+                source="anilist",
+            )
+        ],
+    )
+    conn.close()
+
+    def save_completed_entry(access_token, media_id, *, score_ten):
+        if (access_token, media_id, score_ten) != (
+            "one-year-access-token",
+            99088,
+            8,
+        ):
+            raise AssertionError("AniList completion received the wrong identity or score")
+        return {
+            "id": 77,
+            "mediaId": 99088,
+            "status": "COMPLETED",
+            "score": 80,
+        }
+
+    monkeypatch.setattr(
+        anilist,
+        "save_completed_entry",
+        save_completed_entry,
+        raising=False,
+    )
+    _login(client, "owner@example.com", "owner-password")
+    session = client.get("/api/account/session").json()
+    scored = client.post(
+        f"/api/account/recommendations/{saved[0]['id']}/feedback",
+        headers={"X-CSRF-Token": session["csrf_token"]},
+        json={"state": "watched", "watched_score": 8},
+    )
+
+    assert scored.status_code == 200
+    assert scored.json() == {
+        "ok": True,
+        "state": "watched",
+        "watched_score": 8,
+        "tracker_sync": {
+            "state": "synced",
+            "detail": "Added to OwnerOnAniList’s AniList as Completed · 8/10.",
+        },
+    }
+    conn = db.connect(tmp_path)
+    item = db.recommendation_history(conn, user_id)[0]["recommendations"][0]
+    assert item["tracker_sync_state"] == "synced"
+    assert item["tracker_remote_entry_id"] == 77
+    assert item["tracker_synced_at"]
+    conn.close()
+    dashboard = client.get("/account")
+    assert 'data-tracker-sync-state="synced"' in dashboard.text
+    assert "Added to OwnerOnAniList’s AniList as Completed · 8/10." in dashboard.text
+
+
+def test_watched_feedback_never_writes_to_a_different_connected_anilist_account(
+    monkeypatch,
+    tmp_path,
+):
+    client = _client(monkeypatch, tmp_path)
+    user_id = _bootstrap_admin(tmp_path)
+    conn = db.connect(tmp_path)
+    db.upsert_anilist_connection(
+        conn,
+        user_id=user_id,
+        anilist_user_id=42,
+        anilist_username="OwnerOnAniList",
+        encrypted_access_token=credentials.encrypt_secret("one-year-access-token"),
+    )
+    _, saved = db.save_recommendation_run(
+        conn,
+        user_id=user_id,
+        source="anilist",
+        source_username="SomeoneElse",
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        mode="pro",
+        recommendations=[
+            Recommendation(
+                title="Pluto",
+                predicted_score=9.1,
+                reasoning="A careful mystery.",
+                best_match_from_history="Monster",
+                url="https://anilist.co/anime/99088/Pluto/",
+                source="anilist",
+            )
+        ],
+    )
+    conn.close()
+
+    def reject_any_write(*args, **kwargs):
+        raise AssertionError("a mismatched AniList account was mutated")
+
+    monkeypatch.setattr(
+        anilist,
+        "save_completed_entry",
+        reject_any_write,
+        raising=False,
+    )
+    _login(client, "owner@example.com", "owner-password")
+    session = client.get("/api/account/session").json()
+    scored = client.post(
+        f"/api/account/recommendations/{saved[0]['id']}/feedback",
+        headers={"X-CSRF-Token": session["csrf_token"]},
+        json={"state": "watched", "watched_score": 8},
+    )
+
+    assert scored.status_code == 200
+    assert scored.json()["tracker_sync"] == {
+        "state": "account_mismatch",
+        "detail": (
+            "This menu used SomeoneElse, but AniList is connected as "
+            "OwnerOnAniList. No AniList list was changed."
+        ),
     }

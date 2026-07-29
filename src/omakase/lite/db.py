@@ -155,6 +155,150 @@ def get_login_record(conn: sqlite3.Connection, email: str):
     ).fetchone()
 
 
+def create_oauth_flow(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    provider: str,
+    state_hash: str,
+    expires_at: str,
+) -> None:
+    conn.execute(
+        "DELETE FROM account_oauth_flows WHERE user_id = ? AND provider = ?",
+        (user_id, provider),
+    )
+    conn.execute(
+        """
+        INSERT INTO account_oauth_flows
+            (state_hash, user_id, provider, expires_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (state_hash, user_id, provider, expires_at),
+    )
+    conn.commit()
+
+
+def consume_oauth_flow(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    provider: str,
+    state_hash: str,
+    now: datetime | None = None,
+) -> bool:
+    row = conn.execute(
+        """
+        SELECT expires_at
+          FROM account_oauth_flows
+         WHERE state_hash = ? AND user_id = ? AND provider = ?
+        """,
+        (state_hash, user_id, provider),
+    ).fetchone()
+    if row is None:
+        return False
+    conn.execute("DELETE FROM account_oauth_flows WHERE state_hash = ?", (state_hash,))
+    conn.commit()
+    current = now or datetime.now(timezone.utc)
+    if datetime.fromisoformat(row["expires_at"]) <= current:
+        return False
+    return True
+
+
+def upsert_anilist_connection(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    anilist_user_id: int,
+    anilist_username: str,
+    encrypted_access_token: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO account_anilist_connections
+            (user_id, anilist_user_id, anilist_username, encrypted_access_token)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            anilist_user_id = excluded.anilist_user_id,
+            anilist_username = excluded.anilist_username,
+            encrypted_access_token = excluded.encrypted_access_token,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (user_id, anilist_user_id, anilist_username, encrypted_access_token),
+    )
+    conn.commit()
+
+
+def anilist_connection_summary(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+) -> dict[str, object] | None:
+    row = conn.execute(
+        """
+        SELECT anilist_user_id, anilist_username, connected_at, updated_at
+          FROM account_anilist_connections
+         WHERE user_id = ?
+        """,
+        (user_id,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def anilist_connection_record(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+) -> dict[str, object] | None:
+    row = conn.execute(
+        """
+        SELECT anilist_user_id, anilist_username, encrypted_access_token
+          FROM account_anilist_connections
+         WHERE user_id = ?
+        """,
+        (user_id,),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def delete_anilist_connection(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+) -> bool:
+    cursor = conn.execute(
+        "DELETE FROM account_anilist_connections WHERE user_id = ?",
+        (user_id,),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def pending_anilist_watched(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    limit: int = 100,
+) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT recommendation.id, recommendation.url,
+               recommendation.watched_score, run.source_username
+          FROM account_recommendations AS recommendation
+          JOIN account_recommendation_runs AS run
+            ON run.id = recommendation.run_id
+         WHERE recommendation.user_id = ?
+           AND recommendation.source = 'anilist'
+           AND recommendation.feedback_state = 'watched'
+           AND recommendation.watched_score BETWEEN 1 AND 10
+           AND recommendation.tracker_sync_state != 'synced'
+         ORDER BY recommendation.feedback_at, recommendation.id
+         LIMIT ?
+        """,
+        (user_id, limit),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def create_access_request(
     conn: sqlite3.Connection,
     *,
@@ -710,6 +854,74 @@ def saved_list(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def watched_list(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT id, title, predicted_score, reasoning, best_match_from_history,
+               url, source, feedback_state, watched_score, feedback_at,
+               tracker_sync_state, tracker_sync_detail, tracker_synced_at
+          FROM account_recommendations
+         WHERE user_id = ? AND feedback_state = 'watched'
+         ORDER BY feedback_at DESC, id DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def recommendation_for_user(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    recommendation_id: int,
+) -> dict | None:
+    row = conn.execute(
+        """
+        SELECT recommendation.id, recommendation.title, recommendation.url,
+               recommendation.source, run.source_username
+          FROM account_recommendations AS recommendation
+          JOIN account_recommendation_runs AS run
+            ON run.id = recommendation.run_id
+         WHERE recommendation.id = ? AND recommendation.user_id = ?
+        """,
+        (recommendation_id, user_id),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def set_recommendation_tracker_sync(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    recommendation_id: int,
+    state: str,
+    detail: str,
+    remote_entry_id: int | None = None,
+) -> None:
+    synced_at = datetime.now(timezone.utc).isoformat() if state == "synced" else None
+    cursor = conn.execute(
+        """
+        UPDATE account_recommendations
+           SET tracker_sync_state = ?,
+               tracker_sync_detail = ?,
+               tracker_remote_entry_id = ?,
+               tracker_synced_at = ?
+         WHERE id = ? AND user_id = ?
+        """,
+        (
+            state,
+            detail,
+            remote_entry_id,
+            synced_at,
+            recommendation_id,
+            user_id,
+        ),
+    )
+    if cursor.rowcount != 1:
+        raise OwnershipError("Recommendation not found.")
+    conn.commit()
+
+
 def recommendation_history(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     runs = conn.execute(
         """
@@ -726,7 +938,9 @@ def recommendation_history(conn: sqlite3.Connection, user_id: int) -> list[dict]
         items = conn.execute(
             """
             SELECT id, title, predicted_score, reasoning, best_match_from_history,
-                   url, source, feedback_state, watched_score
+                   url, source, feedback_state, watched_score,
+                   tracker_sync_state, tracker_sync_detail,
+                   tracker_remote_entry_id, tracker_synced_at
               FROM account_recommendations
              WHERE run_id = ? AND user_id = ?
              ORDER BY position

@@ -40,12 +40,26 @@ Lite accounts are invitation-only. The owner creates a one-time, seven-day link 
 
 - saved recommendation history and a local My List;
 - encrypted, reusable provider keys that are never shown back to the browser;
-- Not Interested, Add to My List, and scored Already Watched feedback;
+- Not Interested, Add to My List, and scored Already Watched feedback, with
+  optional verified write-through to the member's own connected AniList account;
 - a saved taste note, remembered setup, and feedback-aware menus that avoid repeats;
 - one-click regeneration from the current result page;
 - no Plex, download, acquisition, or private Plus access.
 
 Lite saves completed recommendations, the account profile, setup choices, and feedback in its own SQLite database. Provider keys are encrypted at rest with a protected server-side Fernet keyring, decrypted only for the selected provider request, and cleared from job memory when the request finishes. Uploaded MAL files remain request-local. Passwords use Argon2id, sessions and invitations are stored only as hashes, mutating account requests require authentication, owner authorization where applicable, same-origin and CSRF validation, and account/API responses are not browser-cached.
+
+AniList synchronization is opt-in per Lite member. Register the exact
+`https://your-host/account/integrations/anilist/callback` URL with AniList, set
+`OMAKASE_ANILIST_CLIENT_ID`, and mount the client secret at the
+`OMAKASE_ANILIST_CLIENT_SECRET_FILE` path. Access tokens are bound to the AniList
+identity the member approved and encrypted with the Lite keyring. Omakase writes
+only when the connected username matches the username used to build that menu,
+then stores AniList's returned list-entry receipt.
+
+For Docker Compose, include `compose.anilist.yaml` alongside `compose.yaml` and
+`compose.production.yaml` after creating `secrets/anilist-client-secret`. The
+separate overlay keeps deployments that do not use AniList synchronization from
+requiring an empty secret file.
 
 ## Run it yourself
 

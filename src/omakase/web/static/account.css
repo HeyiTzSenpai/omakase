@@ -126,6 +126,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .recommendation-list a { font: 1.5rem var(--display); text-decoration: none; }
 .recommendation-list p { max-width: 70ch; margin: .35rem 0; color: var(--paper-muted); }
 .recommendation-list small { color: var(--brass); text-transform: uppercase; }
+.recommendation-list .tracker-sync-detail { display: block; margin-top: .35rem; color: var(--paper-muted); text-transform: none; }
 .recommendation-list strong { color: var(--brass); font: 1.8rem var(--display); }
 .empty-state { padding: 2rem 0; border-block: 1px solid var(--line); color: var(--paper-dim); }
 .history-run { border-top: 1px solid var(--line); }

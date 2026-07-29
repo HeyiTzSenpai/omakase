@@ -281,6 +281,73 @@ def test_openwebui_migration_preserves_existing_provider_keys(tmp_path):
     migrated.commit()
 
 
+def test_anilist_sync_migration_preserves_existing_watched_feedback(tmp_path):
+    database_path = tmp_path / "omakase-lite.db"
+    conn = sqlite3.connect(database_path)
+    conn.execute(
+        """
+        CREATE TABLE account_migrations (
+            name TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    for path in sorted(db._MIGRATIONS.glob("*.sql")):
+        if path.name == "006-anilist-sync.sql":
+            break
+        conn.executescript(path.read_text(encoding="utf-8"))
+        conn.execute("INSERT INTO account_migrations (name) VALUES (?)", (path.name,))
+    conn.execute(
+        """
+        INSERT INTO account_users (id, email, password_hash, display_name)
+        VALUES (1, 'friend@example.com', 'hash', 'Friend')
+        """
+    )
+    conn.execute("INSERT INTO account_profiles (user_id, taste_profile) VALUES (1, '')")
+    conn.execute(
+        """
+        INSERT INTO account_recommendation_runs
+            (id, user_id, source, source_username, provider, model, mode)
+        VALUES (1, 1, 'anilist', 'FriendOnAniList', 'deepseek', 'model', 'pro')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO account_recommendations
+            (id, run_id, user_id, position, title, predicted_score, url, source,
+             feedback_state, watched_score)
+        VALUES (
+            1, 1, 1, 0, 'Pluto', 9.1,
+            'https://anilist.co/anime/99088/Pluto/', 'anilist', 'watched', 8
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    migrated = db.connect(tmp_path)
+    watched = migrated.execute(
+        """
+        SELECT title, feedback_state, watched_score, tracker_sync_state,
+               tracker_sync_detail, tracker_remote_entry_id, tracker_synced_at
+          FROM account_recommendations
+         WHERE id = 1
+        """
+    ).fetchone()
+
+    assert dict(watched) == {
+        "title": "Pluto",
+        "feedback_state": "watched",
+        "watched_score": 8,
+        "tracker_sync_state": "local_only",
+        "tracker_sync_detail": None,
+        "tracker_remote_entry_id": None,
+        "tracker_synced_at": None,
+    }
+    assert migrated.execute("SELECT COUNT(*) FROM account_anilist_connections").fetchone()[0] == 0
+    assert migrated.execute("SELECT COUNT(*) FROM account_oauth_flows").fetchone()[0] == 0
+
+
 def test_provider_key_is_encrypted_at_rest_and_summary_is_redacted(monkeypatch, tmp_path):
     keyring_path = tmp_path / "lite-keyring"
     keyring_path.write_bytes(Fernet.generate_key())
