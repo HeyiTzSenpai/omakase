@@ -20,7 +20,7 @@ def test_favicon_ico_compat_route_serves_svg():
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
-    assert "bento" in response.text
+    assert "Omakase, a bowl beneath a star" in response.text
 
 
 def test_generated_counter_art_is_present():

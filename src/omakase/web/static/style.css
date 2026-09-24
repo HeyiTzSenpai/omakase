@@ -16,9 +16,9 @@
   --focus: #f3c976;
   --error: #ffadb5;
   --success: #8fd8bd;
-  --display: "Newsreader", Georgia, serif;
-  --body: "Instrument Sans", "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", Consolas, monospace;
+  --display: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --body: "Segoe UI", system-ui, sans-serif;
+  --mono: Consolas, monospace;
   --max: 1520px;
 }
 
@@ -1436,3 +1436,48 @@ fieldset > legend,
     transition-duration: 0.001ms !important;
   }
 }
+
+/* The recommendation room: a public introduction around the working counter. */
+body { background: var(--ink); }
+html { scroll-padding-top: 1.5rem; }
+.back-nav { width: min(100%, 1600px); margin: auto; min-height: 78px; padding-inline: clamp(1rem, 4vw, 4rem); background: var(--ink); }
+.product-brand { text-transform: none; font: 1.3rem var(--display); letter-spacing: 0; }
+.guide-nav { margin-left: 2rem; }
+.welcome { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); align-items: center; gap: clamp(2rem, 5vw, 5rem); max-width: 1520px; margin: auto; padding: clamp(3rem, 6vw, 6rem) clamp(1.25rem, 4vw, 4rem); }
+.welcome h1 { margin: 1.2rem 0 1.6rem; font: 400 clamp(3.3rem, 5.4vw, 6rem)/1.02 var(--display); letter-spacing: -.055em; }
+.welcome h1 em { color: #c8b2da; font-weight: 400; }
+.welcome .hero-copy { max-width: 43ch; line-height: 1.75; }
+.welcome__art { min-width: 0; margin: 0; }
+.welcome__art img { display: block; width: 100%; height: clamp(340px, 36vw, 570px); object-fit: cover; object-position: 52% center; }
+.welcome__art figcaption { display: flex; justify-content: space-between; gap: 1rem; padding-top: 1rem; color: var(--paper-dim); font: .65rem/1.6 var(--mono); }
+.welcome__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 1.5rem; margin: 2rem 0 1rem; }
+.text-link { display: inline-flex; align-items: center; min-height: 44px; text-underline-offset: 6px; font-size: .9rem; }
+.welcome__note { color: var(--paper-dim); font-size: .8rem; }
+.counter-shell { width: min(calc(100% - 2.5rem), 1392px); min-height: 0; grid-template-columns: minmax(0, .65fr) minmax(0, 1.35fr); border: 1px solid var(--line); scroll-margin-top: 1.5rem; }
+.counter-notes { padding: clamp(1.5rem, 4vw, 3.5rem); background: #19121f; border-right: 1px solid var(--line); }
+.counter-notes h2, .field-guide h2 { font: 400 clamp(2.4rem, 3.6vw, 4rem)/1.08 var(--display); letter-spacing: -.04em; margin: 1.1rem 0 1.6rem; }
+.counter-notes > p:not(.kicker) { color: var(--paper-muted); line-height: 1.75; }
+.counter-notes__steps { list-style: none; padding: 0; margin: 2.5rem 0; }
+.counter-notes__steps li { display: flex; gap: 1.1rem; border-top: 1px solid var(--line); padding: 1.25rem 0; }
+.counter-notes__steps li > span { color: var(--brass); font: .7rem/2 var(--mono); }
+.counter-notes__steps p { margin: .3rem 0 0; color: var(--paper-dim); font-size: .88rem; }
+.counter-notes__foot { border-top: 1px solid var(--line); padding-top: 1.2rem; font-size: .82rem; }
+.order-panel { background: var(--ink-soft); padding: clamp(1.4rem, 3vw, 3rem); }
+.order-panel__header { grid-template-columns: 1fr; gap: .8rem; }
+.order-panel__header h2 { font-size: clamp(2rem, 3vw, 3.2rem); line-height: 1.1; }
+.order-panel__intro { font-size: .9rem; }
+.field-guide { display: grid; grid-template-columns: 1fr 1.3fr; gap: clamp(2rem, 7vw, 7rem); max-width: 1392px; margin: auto; padding: clamp(3rem, 7vw, 6rem) clamp(1.25rem, 4vw, 3rem); }
+.field-guide header > p:last-child { color: var(--paper-muted); max-width: 32ch; }
+.field-guide details { border-top: 1px solid var(--line); }
+.field-guide details:last-child { border-bottom: 1px solid var(--line); }
+.field-guide summary { cursor: pointer; padding: 1.2rem 1.8rem 1.2rem 0; font-size: 1rem; min-height: 44px; }
+.field-guide details p { color: var(--paper-muted); line-height: 1.8; margin: 0 0 1.25rem; }
+.field-guide details .text-link { margin-bottom: 1rem; }
+.edition-note { max-width: 1296px; margin: 0 auto 3rem; padding: 1.5rem; border-block: 1px solid var(--line); display: flex; align-items: center; gap: 1.5rem; }
+.edition-note p { flex: 1; color: var(--paper-muted); line-height: 1.8; }
+.edition-note strong { color: var(--paper); font-weight: 500; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 5px; }
+@media (max-width: 980px) { .welcome { gap: 2rem; } .welcome h1 { font-size: 3.5rem; } .counter-shell { grid-template-columns: minmax(0, .55fr) minmax(0, 1fr); } .counter-notes { padding: 1.5rem; } }
+@media (max-width: 760px) { .guide-nav { display: none !important; } .welcome { grid-template-columns: 1fr; padding-top: 2.5rem; } .welcome h1 { font-size: clamp(3.2rem, 11vw, 5rem); } .welcome__art img { height: auto; aspect-ratio: 16/10; } .welcome__art figcaption { font-size: .6rem; } .counter-shell { display: block; } .counter-notes { border-right: 0; border-bottom: 1px solid var(--line); } .counter-notes__steps { display: none; } .counter-notes__foot { margin-bottom: 0; } .field-guide { grid-template-columns: 1fr; gap: 1.5rem; } .edition-note { margin-inline: 1.25rem; flex-wrap: wrap; } .edition-note p { min-width: 200px; } .back-nav { gap: .6rem; font-size: .62rem; } .product-brand { font-size: 1.15rem; } .account-entry { gap: .5rem; } }
+
+.choice-card.is-selected small, .segment-control label:has(input:checked) small { color: var(--paper); }

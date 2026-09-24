@@ -4,11 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b0710">
-  <meta name="description" content="An invitation-only anime recommendation menu built from your own watch history and model key.">
+  <meta name="description" content="Find your next anime through your own watch history and taste. Try the guest counter with your own model key; Lite accounts are invitation-only.">
   <title>Omakase | Your anime tasting menu</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500;600&amp;family=Newsreader:opsz,wght@6..72,400;6..72,500&amp;display=swap">
   <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <script src="/static/account_state.js?v={{ asset_version }}" defer></script>
@@ -23,38 +20,35 @@
       <strong>jhinx.dev</strong>
     </a>
     <span aria-hidden="true">/</span>
-    <span>omakase</span>
+    <a class="product-brand" href="/" aria-label="Omakase home"><img src="/static/omakase-mark.svg" alt="" width="30" height="30"><span>Omakase</span></a><a class="guide-nav" href="#field-guide">The field guide</a>
     <span class="account-entry">
       <a id="account-login-link" href="/account/login">Sign in</a>
       <a id="account-home-link" href="/account" hidden>My counter</a>
     </span>
   </nav>
 
-  <main id="counter">
-    <section class="counter-shell" aria-labelledby="hero-title">
-      <div class="story-panel">
-        <img
-          class="story-panel__image"
-          src="/static/generated/omakase-counter-v2.png"
-          alt="Five dishes connected by constellation-like steam on a dark midnight chef's counter"
-          width="1536"
-          height="1024"
-        >
-        <div class="story-panel__veil"></div>
-        <div class="story-panel__copy">
-          <p class="kicker">お任せ / anime sommelier</p>
-          <h1 id="hero-title">A tasting menu for your actual taste.</h1>
-          <p class="hero-copy">
-            Pair your scored anime history with a model you choose. Omakase returns a small menu of picks and explains why each one belongs there.
-          </p>
-          <div class="story-facts" aria-label="Omakase public demo facts">
-            <span>One request</span>
-            <span>Your model key</span>
-            <span>Guest or Lite account</span>
-          </div>
-        </div>
+  <main>
+    <section class="welcome" aria-labelledby="hero-title">
+      <div class="welcome__copy">
+        <p class="kicker">お任せ / a personal anime counter</p>
+        <h1 id="hero-title">Less scrolling.<br>A better <em>next watch.</em></h1>
+        <p class="hero-copy">Your taste has a story. Bring the anime you have loved, the ones you have left behind, and a few honest preferences. Leave with a small menu made around you.</p>
+        <div class="welcome__actions"><a class="button button--primary" href="#counter">Prepare my menu <span aria-hidden="true">↗</span></a><a class="text-link" href="#field-guide">How it works <span aria-hidden="true">↓</span></a></div>
+        <p class="welcome__note">Bring your own model key. Guest menus need no account.</p>
       </div>
-
+      <figure class="welcome__art">
+        <img src="/static/generated/omakase-atelier.webp" alt="A moonlit fantasy workshop with five framed landscapes, a tea cup, and a modern tablet on the recommendation counter" width="1440" height="810" fetchpriority="high">
+        <figcaption><span>THE RECOMMENDATION ROOM</span><span>Five possibilities. Your taste.</span></figcaption>
+      </figure>
+    </section>
+    <section class="counter-shell" id="counter" aria-labelledby="counter-title">
+      <aside class="counter-notes">
+        <p class="kicker">01 / Take a seat</p>
+        <h2 id="counter-title">Your next story<br>starts here.</h2>
+        <p>A considered shortlist, with a reason behind each choice. Your scores supply the reference points; your notes add the nuance.</p>
+        <ol class="counter-notes__steps"><li><span>01</span><div><strong>Your model</strong><p>Choose the provider you already use.</p></div></li><li><span>02</span><div><strong>Your history</strong><p>Bring an AniList username or a MAL export.</p></div></li><li><span>03</span><div><strong>Your taste</strong><p>Tell it what makes a story stay with you.</p></div></li></ol>
+        <p class="counter-notes__foot">No shared model subscription. Your provider bills your usage directly.</p>
+      </aside>
       <div class="order-panel">
         <header class="order-panel__header">
           <div>
@@ -100,7 +94,7 @@
             <div class="course__heading">
               <p class="course-label">First course</p>
               <h3 id="model-course-title">Choose who reasons.</h3>
-              <p>The provider charges your account directly. Omakase does not proxy or resell model access.</p>
+              <p>The provider charges your account directly. Omakase sends this request to your selected provider; it does not resell model access.</p>
             </div>
 
             <fieldset class="choice-grid choice-grid--providers">
@@ -363,6 +357,17 @@
         </div>
       </form>
     </dialog>
+    <section class="field-guide" id="field-guide" aria-labelledby="guide-title">
+      <header><p class="kicker">02 / The field guide</p><h2 id="guide-title">A little context<br>before the first course.</h2><p>Two ways to use the counter. One separate companion for the library.</p></header>
+      <div class="field-guide__answers">
+        <details open><summary>What do I need to try it?</summary><p>A model key from one of the listed providers, plus a public AniList username or a MyAnimeList XML export. Taste notes are optional. Provider charges and availability depend on your own account.</p></details>
+        <details><summary>What happens to a guest request?</summary><p>Your key, watch history, and notes pass through this server to prepare the request for your selected provider. They are held for the request, not saved to a guest profile. The model provider has its own data policies. Close or reload the page to clear the form.</p></details>
+        <details><summary>What changes with a Lite account?</summary><p>Lite is invitation-only. It adds a saved profile, encrypted reusable provider keys, past menus, and feedback such as Watching and Already Watched. Optional AniList linking can synchronize supported progress and scores. Guest requests and saved accounts have different storage boundaries.</p></details>
+        <details><summary>What is Omakase Plus?</summary><p>Plus is my separate private anime-library companion. It connects recommendations, episode checks, Plex, and viewing progress. This public counter does not grant access to it.</p><a class="text-link" href="https://omakase-plus.jhinx.dev">Explore the Plus preview and guides ↗</a></details>
+        <details><summary>Can I run Omakase myself?</summary><p>Yes. The open-source project includes the browser counter and a command-line workflow. Self-hosting also supports local model setups that the public counter cannot reach.</p><a class="text-link" href="https://github.com/HeyiTzSenpai/omakase#run-it-yourself">Read the setup guide ↗</a></details>
+      </div>
+    </section>
+    <section class="edition-note" aria-label="Omakase family"><img src="/static/omakase-mark.svg" width="48" height="48" alt=""><p><strong>Choose a story here. Follow the library with Plus.</strong><br>Related tools, each with its own job.</p><a class="text-link" href="https://omakase-plus.jhinx.dev">Meet Omakase Plus ↗</a></section>
   </main>
 
   <footer class="footer">
