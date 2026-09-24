@@ -10,7 +10,7 @@ Omakase is an anime sommelier. It pairs your scored watch history with a short d
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](LICENSE)
 
-![A mystical midnight tasting counter with five dishes connected by constellation light](src/omakase/web/static/generated/omakase-atelier.webp)
+![A moonlit recommendation cabinet with framed landscapes, a tea cup, and a modern tablet](src/omakase/web/static/generated/omakase-atelier.webp)
 
 The public counter and its field guide share the moonlit workshop style of [jhinx.dev](https://jhinx.dev/projects/omakase). The separate [Omakase Plus preview and documentation](https://omakase-plus.jhinx.dev) explain the private library companion.
 
