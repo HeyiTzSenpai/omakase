@@ -34,7 +34,7 @@
         <h1 id="hero-title">Less scrolling.<br>A better <em>next watch.</em></h1>
         <p class="hero-copy">Your taste has a story. Bring the anime you have loved, the ones you have left behind, and a few honest preferences. Leave with a small menu made around you.</p>
         <div class="welcome__actions"><a class="button button--primary" href="#counter">Prepare my menu <span aria-hidden="true">↗</span></a><a class="text-link" href="#field-guide">How it works <span aria-hidden="true">↓</span></a></div>
-        <p class="welcome__note">Bring your own model key. Guest menus need no account.</p>
+        <p class="welcome__note">Guest menus need no account. You bring a key from your chosen model provider and approve its usage charges there.</p>
       </div>
       <figure class="welcome__art">
         <img src="/static/generated/omakase-atelier.webp" alt="A moonlit fantasy workshop with five framed landscapes, a tea cup, and a modern tablet on the recommendation counter" width="1440" height="810" fetchpriority="high">
@@ -55,7 +55,7 @@
             <p class="course-label">Tonight's counter</p>
             <h2>Prepare your menu.</h2>
           </div>
-          <p class="order-panel__intro">Three short courses. About two minutes to set up.</p>
+          <p class="order-panel__intro">Choose a provider, add your watch history, then shape the shortlist. You can return to any step.</p>
         </header>
 
         <div class="privacy-receipt" aria-label="Privacy receipt">
@@ -67,19 +67,19 @@
         </div>
 
         <div class="error-banner" id="error-banner" role="alert" tabindex="-1" hidden>
-          <p class="error-banner__label">The counter needs one change</p>
+          <p class="error-banner__label">Check this step</p>
           <p id="error-text"></p>
         </div>
 
         <nav class="course-nav" aria-label="Recommendation setup">
           <button type="button" class="course-nav__item is-active" data-course-target="model" aria-current="step">
-            <span>01</span><strong>Model</strong><small>Who reasons</small>
+            <span>01</span><strong>Model</strong><small>Choose a provider</small>
           </button>
           <button type="button" class="course-nav__item" data-course-target="history">
-            <span>02</span><strong>History</strong><small>What you watched</small>
+            <span>02</span><strong>History</strong><small>Add your list</small>
           </button>
           <button type="button" class="course-nav__item" data-course-target="taste">
-            <span>03</span><strong>Taste</strong><small>What matters</small>
+            <span>03</span><strong>Taste</strong><small>Shape the menu</small>
           </button>
         </nav>
 
@@ -93,7 +93,7 @@
           <section class="course is-active" data-course="model" aria-labelledby="model-course-title">
             <div class="course__heading">
               <p class="course-label">First course</p>
-              <h3 id="model-course-title">Choose who reasons.</h3>
+              <h3 id="model-course-title">Choose your model provider.</h3>
               <p>The provider charges your account directly. Omakase sends this request to your selected provider; it does not resell model access.</p>
             </div>
 
@@ -156,7 +156,7 @@
                 <p class="field__hint">Enter the model ID exactly as it appears in OpenWebUI.</p>
               </div>
               <div class="field field--wide">
-                <label for="api_key">Provider key</label>
+                <label for="api_key">Your provider API key</label>
                 <div class="secret-field">
                   <input
                     id="api_key"
@@ -203,7 +203,7 @@
           <section class="course" data-course="history" aria-labelledby="history-course-title" hidden>
             <div class="course__heading">
               <p class="course-label">Second course</p>
-              <h3 id="history-course-title">Bring what you watched.</h3>
+              <h3 id="history-course-title">Add your watch history.</h3>
               <p>Your scores create the reference points. Omakase does not change your list.</p>
             </div>
 
@@ -247,7 +247,7 @@
           <section class="course" data-course="taste" aria-labelledby="taste-course-title" hidden>
             <div class="course__heading">
               <p class="course-label">Final course</p>
-              <h3 id="taste-course-title">Tell the chef what matters.</h3>
+              <h3 id="taste-course-title">Shape your next watch.</h3>
               <p>A few honest preferences sharpen the menu. Skip this to let your scores speak alone.</p>
             </div>
 

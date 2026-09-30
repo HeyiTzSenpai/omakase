@@ -1481,3 +1481,15 @@ html { scroll-padding-top: 1.5rem; }
 @media (max-width: 760px) { .guide-nav { display: none !important; } .welcome { grid-template-columns: 1fr; padding-top: 2.5rem; } .welcome h1 { font-size: clamp(3.2rem, 11vw, 5rem); } .welcome__art img { height: auto; aspect-ratio: 16/10; } .welcome__art figcaption { font-size: .6rem; } .counter-shell { display: block; } .counter-notes { border-right: 0; border-bottom: 1px solid var(--line); } .counter-notes__steps { display: none; } .counter-notes__foot { margin-bottom: 0; } .field-guide { grid-template-columns: 1fr; gap: 1.5rem; } .edition-note { margin-inline: 1.25rem; flex-wrap: wrap; } .edition-note p { min-width: 200px; } .back-nav { gap: .6rem; font-size: .62rem; } .product-brand { font-size: 1.15rem; } .account-entry { gap: .5rem; } }
 
 .choice-card.is-selected small, .segment-control label:has(input:checked) small { color: var(--paper); }
+
+/* Keep the three-step route legible on narrow screens. */
+.course-nav__item { min-height: 64px; }
+.course-nav__item small { white-space: normal; line-height: 1.35; }
+.error-banner { border-left: 3px solid var(--error); }
+.field__hint { max-width: 65ch; line-height: 1.55; }
+@media (max-width: 560px) {
+  .course-nav { margin-bottom: 1.5rem; }
+  .course-nav__item { min-height: 62px; padding: 0.7rem 0.35rem; }
+  .course-nav__item > span { display: block; color: var(--paper-dim); font-size: 0.62rem; }
+  .course-nav__item strong { display: block; margin-top: 0.25rem; font-size: 0.8rem; }
+}
