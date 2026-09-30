@@ -30,6 +30,12 @@ The result is a short tasting menu instead of an endless popularity feed. Each r
 
 ## Public counter
 
+The counter has three explicit steps: choose a model provider, add watch history,
+and shape the menu. You can return to an earlier step before requesting a menu.
+The current interface release is on `codex/estate-review-20260930`; the hosted
+counter has been verified against that source. This README update does not
+change the provider, privacy or account contracts below.
+
 The hosted site supports request-local keys for OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, and owner-approved OpenWebUI instances. Both Quick and Deep model presets run as background jobs, so a slower reasoning model can finish without holding one proxy request open. OpenWebUI asks for the instance URL and the exact model ID shown there. Choose the provider explicitly: several provider keys can share the same shape, so key text alone is not a safe provider signal.
 
 Guest menus remain request-local. The provider key, history, and taste notes are not written to disk, logs, cookies, or a database. Your history and notes are sent to the provider you select so it can generate the menu. That provider's own data policy still applies.
