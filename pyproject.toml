@@ -44,9 +44,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/HeyiTzSenpai/omakase"
-Repository = "https://github.com/HeyiTzSenpai/omakase"
-Issues = "https://github.com/HeyiTzSenpai/omakase/issues"
+Homepage = "https://github.com/JhinxDev/omakase"
+Repository = "https://github.com/JhinxDev/omakase"
+Issues = "https://github.com/JhinxDev/omakase/issues"
 
 [project.scripts]
 omakase = "omakase.cli:cli"

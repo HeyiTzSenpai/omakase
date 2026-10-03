@@ -13,7 +13,7 @@ from omakase.adapters.base import SourceAdapter, register
 from omakase.types import MediaItem, SourceData
 
 API_URL = "https://graphql.anilist.co"
-USER_AGENT = "Omakase/0.1 (homelab; +https://github.com/HeyiTzSenpai/omakase)"
+USER_AGENT = "Omakase/0.1 (homelab; +https://github.com/JhinxDev/omakase)"
 
 
 @register("anilist")

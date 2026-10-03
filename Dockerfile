@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir --upgrade pip build && \
 
 FROM python:3.12-slim AS runtime
 ARG OMAKASE_SOURCE_COMMIT=development
-LABEL org.opencontainers.image.source="https://github.com/HeyiTzSenpai/omakase"
+LABEL org.opencontainers.image.source="https://github.com/JhinxDev/omakase"
 LABEL org.opencontainers.image.description="An LLM-powered sommelier for anime"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.revision="${OMAKASE_SOURCE_COMMIT}"

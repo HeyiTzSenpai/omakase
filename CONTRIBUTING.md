@@ -25,7 +25,7 @@ If the backend exposes `/v1/chat/completions` in OpenAI's shape, just register `
 ## Dev setup
 
 ```bash
-git clone https://github.com/HeyiTzSenpai/omakase
+git clone https://github.com/JhinxDev/omakase
 cd omakase
 pip install -e ".[dev]"
 pytest
