@@ -6,7 +6,7 @@ Omakase is an anime sommelier. It pairs your scored watch history with a short d
 
 [Try the public counter](https://omakase.jhinx.dev) · [Read the case study](https://jhinx.dev/projects/omakase) · [Visit jhinx.dev](https://jhinx.dev)
 
-[![CI](https://github.com/HeyiTzSenpai/omakase/actions/workflows/ci.yml/badge.svg)](https://github.com/HeyiTzSenpai/omakase/actions/workflows/ci.yml)
+[![CI](https://github.com/JhinxDev/omakase/actions/workflows/ci.yml/badge.svg)](https://github.com/JhinxDev/omakase/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg)](LICENSE)
 
@@ -107,7 +107,7 @@ omakase web
 Install from source when developing:
 
 ```bash
-git clone https://github.com/HeyiTzSenpai/omakase
+git clone https://github.com/JhinxDev/omakase
 cd omakase
 pip install -e .
 ```
